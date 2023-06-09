@@ -2,5 +2,6 @@
   "host": "https://e2-demo-field-eng.cloud.databricks.com/",
   "authType": "profile",
   "profile": "e2d",
+  "clusterId": "1007-134246-p7wvv615",
   "workspacePath": "/Repos/grzegorz.rusin@databricks.com/bdq.ide"
 }
