@@ -17,7 +17,7 @@ df2 = spark.createDataFrame([
 [ 2, 2, "Timmy",    datetime(2018, 1, 1), datetime(2018, 2, 1, 12, 34, 56), 36.7, 8754857845, True]
 ], schema)
 
-assert bdq.schema_compare(df1.schema, df2.schema) == {
+assert bdq.compare_schemas(df1.schema, df2.schema) == {
   'added': set(), 
   'removed': set(), 
   'changed': {}, 
@@ -31,7 +31,7 @@ df2_changed = df2 \
   .withColumn('new_data', F.lit(None).cast('date')) \
   .withColumn('likes', F.col('likes').cast('int'))
 
-assert bdq.schema_compare(df2.schema, df2_changed.schema) == {
+assert bdq.compare_schemas(df2.schema, df2_changed.schema) == {
   'added': {'first_login_dt'}, 
   'removed': {'new_data'}, 
   'changed': {

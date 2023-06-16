@@ -6,5 +6,5 @@ spark = SparkSession.builder.getOrCreate()
 from pyspark.dbutils import DBUtils
 dbutils = DBUtils(spark)
 
-from .schema import schema_compare
-from .dataframe import dataframe_compare
+from .schema import compare_schemas
+from .dataframe import compare_dataframes, uncache_compare_dataframes_results, display_compare_dataframes_results

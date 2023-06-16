@@ -1,5 +1,3 @@
-# Databricks notebook source
-
 import bdq
 from bdq import spark
 from datetime import datetime

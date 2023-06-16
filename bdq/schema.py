@@ -1,6 +1,6 @@
 import pyspark.sql.types as T
 
-def schema_compare(s1: T.StructType, s2: T.StructType) -> dict:
+def compare_schemas(s1: T.StructType, s2: T.StructType) -> dict:
   def _get_type_dict(s:T.StringType):
     return { 
       f.name: f.dataType.simpleString()
