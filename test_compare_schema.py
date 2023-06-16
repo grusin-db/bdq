@@ -31,13 +31,13 @@ df2_changed = df2 \
   .withColumn('new_data', F.lit(None).cast('date')) \
   .withColumn('likes', F.col('likes').cast('int'))
 
-assert bdq.schema_compare(df2.schema, df1.df2_changed) == {
-    'added': {'first_login_dt'}, 
-    'removed': {'new_data'}, 
-    'changed': {
-      'likes': {'before': 'bigint', 'after': 'int'}
-    },
-    'not_changed': {
-      'name', 'id1', 'last_login_ts', 'id2', 'credits', 'active'
-    }
+assert bdq.schema_compare(df2.schema, df2_changed.schema) == {
+  'added': {'first_login_dt'}, 
+  'removed': {'new_data'}, 
+  'changed': {
+    'likes': {'before': 'bigint', 'after': 'int'}
+  },
+  'not_changed': {
+    'name', 'id1', 'last_login_ts', 'id2', 'credits', 'active'
   }
+}
