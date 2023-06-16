@@ -1,8 +1,14 @@
 import pyspark.sql.types as T
 
 def schema_compare(s1: T.StructType, s2: T.StructType) -> dict:
-  d1 = dict(s1.dtypes)
-  d2 = dict(s1.dtypes)
+  def _get_type_dict(s:T.StringType):
+    return { 
+      f.name: f.dataType.simpleString()
+      for f in s.fields
+    }
+  
+  d1 = _get_type_dict(s1)
+  d2 = _get_type_dict(s2)
 
   return dict_compare(d1, d2)
 
