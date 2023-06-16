@@ -24,6 +24,6 @@ def dict_compare(d1:dict, d2:dict) -> dict:
   return { 
     'added': added, 
     'removed': removed, 
-    'modified': modified, 
+    'changed': modified, 
     'not_changed': not_changed
   }

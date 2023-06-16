@@ -7,3 +7,4 @@ from pyspark.dbutils import DBUtils
 dbutils = DBUtils(spark)
 
 from .schema import schema_compare
+from .dataframe import dataframe_compare
