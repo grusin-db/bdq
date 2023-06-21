@@ -1,7 +1,6 @@
 # Databricks notebook source
 
 import bdq
-from bdq import spark
 from datetime import datetime
 import pyspark.sql.functions as F
 
@@ -23,3 +22,4 @@ schema_diff = bdq.compare_schemas(df1.schema, df2.schema)
 assert not schema_diff['added'] and not schema_diff['removed'] and not schema_diff['changed']
 
 df_diff = bdq.compare_dataframes(df1, df2, ['id1', 'id2'], True)
+bdq.display_compare_dataframes_results(df_diff)
