@@ -140,7 +140,7 @@ broken_df = fact_dim_broken_relationship(
 >> |Dept|Country|sample_records                                                                      |
 >> +----+-------+------------------------------------------------------------------------------------+
 >> |IT  |USA    |[{IT, USA, Alice1, ��xz4q_��\ra�-��Vz}, {IT, USA, Alice2, ��xz4q_��\ra�-��Vz}]|
->> |IT  |EU     |[{IT  , EU    , Justin, ��H'V4�\rY,g�I�����}]                                     |
+>> |IT  |EU     |[{IT  , EU    , Justin, ��H'V4�\rY,g�I�����}]                                      |
 >> +----+-------+------------------------------------------------------------------------------------+
 
 # using surrogate keys will yield better results, because extra spaces are trimmed
