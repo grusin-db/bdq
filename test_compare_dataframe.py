@@ -1,5 +1,4 @@
 import bdq
-from bdq import spark
 from datetime import datetime
 import pyspark.sql.functions as F
 
