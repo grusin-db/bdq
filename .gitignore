@@ -1,5 +1,6 @@
-# databricks sync
+# ide sync
 .databricks/
+.vscode/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
