@@ -50,15 +50,31 @@ df2 = spark.createDataFrame([
 #returns dicts with added, removed, changed and not changed dataframes, and record counts
 df_diff = bdq.compare_dataframes(df1, df2, ['id1', 'id2'], True)
 
-#show changed records & columns only
-df_diff['changed'].show()
+#show all info about compare results
+bdq.display_compare_dataframes_results(df_diff)
 
+>> Added records count: 1
+>> +---+---+-----+--------------+-------------------+-------+----------+------+
+>> |id1|id2|name |first_login_dt|last_login_ts      |credits|likes     |active|
+>> +---+---+-----+--------------+-------------------+-------+----------+------+
+>> |2  |2  |Timmy|2018-01-01    |2018-02-01 12:34:56|36.7   |8754857845|true  |
+>> +---+---+-----+--------------+-------------------+-------+----------+------+
+>> 
+>> Removed records count: 1
+>> +---+---+----+--------------+-------------------+-------+-----+------+
+>> |id1|id2|name|first_login_dt|last_login_ts      |credits|likes|active|
+>> +---+---+----+--------------+-------------------+-------+-----+------+
+>> |2  |1  |Tim |2018-01-01    |2018-02-01 12:34:56|36.7   |54545|true  |
+>> +---+---+----+--------------+-------------------+-------+-----+------+
+>> 
+>> Changed records count: 1
 >> +---+---+---------------------------------------------------------------------+
 >> |id1|id2|changed                                                              |
 >> +---+---+---------------------------------------------------------------------+
 >> |1  |1  |{first_login_dt -> {2017-01-01, 2018-01-01}, credits -> {26.7, 26.9}}|
->> |3  |1  |{}                                                                   |
 >> +---+---+---------------------------------------------------------------------+
+
+Not changed records count: 1
 ```
 
 ## Surrogate key generation

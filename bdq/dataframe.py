@@ -44,8 +44,8 @@ def compare_dataframes(df1:DataFrame, df2:DataFrame, key_columns:list[str], cach
     df1_only_records = df1_only_records.cache()
     df_compare = df_compare.cache()
 
-  df_changed = df_compare.filter('changed is not null')
-  df_not_changed = df_compare.filter('changed is null')
+  df_changed = df_compare.filter('changed is not null and size(changed) > 0')
+  df_not_changed = df_compare.filter('changed is null or size(changed) == 0')
 
   if cache_results:
     df_changed = df_changed.cache()
@@ -72,22 +72,28 @@ def uncache_compare_dataframes_results(d:dict):
     if isinstance(v, DataFrame):
       v.unpersist()
 
-def display_compare_dataframes_results(df_diff:dict, show_added_records=True, show_removed_records=True, show_changed_records=True, show_not_changed_records=False):
+def display_compare_dataframes_results(df_diff:dict, show_added_records=True, show_removed_records=True, show_changed_records=True, show_not_changed_records=False, display_function=None):
+  def _display(df):
+    if display_function:
+      display_function(df)
+    else:
+      df.show(truncate=False)
+  
   print('Added records count:', df_diff['added_count'])
   if show_added_records:
-    display(df_diff['added'])
+    _display(df_diff['added'])
 
   print('Removed records count:', df_diff['removed_count'])
   if show_removed_records:
-    display(df_diff['removed'])
+    _display(df_diff['removed'])
 
   print('Changed records count:', df_diff['changed_count'])
   if show_changed_records:
-    display(df_diff['changed'])
+    _display(df_diff['changed'])
 
   print('Not changed records count:', df_diff['not_changed_count'])
   if show_not_changed_records:
-    display(df_diff['not_changed'])
+    _display(df_diff['not_changed'])
 
 def fact_dim_broken_relationship(fact_df, fk_columns, dim_df, pk_columns, sample_broken_records=3):
   if len(pk_columns) != len(fk_columns):
