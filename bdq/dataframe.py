@@ -1,5 +1,5 @@
 import pyspark.sql.functions as F
-from pyspark.sql import DataFrame
+from pyspark.sql import DataFrame, Window
 
 def compare_dataframes(df1:DataFrame, df2:DataFrame, key_columns:list[str], cache_results=False) -> DataFrame:
   df1 = df1.alias('df1')
@@ -88,3 +88,31 @@ def display_compare_dataframes_results(df_diff:dict, show_added_records=True, sh
   print('Not changed records count:', df_diff['not_changed_count'])
   if show_not_changed_records:
     display(df_diff['not_changed'])
+
+def fact_dim_broken_relationship(fact_df, fk_columns, dim_df, pk_columns, sample_broken_records=5):
+  if len(pk_columns) != len(fk_columns):
+    raise ValueError("pk_columns count must match fk_columns count")
+  
+  distinct_fact_df = fact_df.select(fk_columns).distinct().alias('f')
+  distinct_dim_df = dim_df.select(pk_columns).distinct().alias('d')
+
+  join_expr = [
+    F.col(pk) == F.col(fk)
+    for pk, fk in zip(pk_columns, fk_columns)
+  ]
+
+  broken_df = distinct_fact_df.join(distinct_dim_df, join_expr, 'left_anti').select('f.*')
+
+  if not sample_broken_records:
+    return broken_df
+  
+  sampled_broken_df = fact_df.alias('f') \
+    .join(broken_df.alias('b'), fk_columns, 'inner') \
+    .select('f.*') \
+    .withColumn('__row_number', F.row_number().over(Window.partitionBy(fk_columns).orderBy(F.lit(1)))) \
+    .filter(F.col('__row_number') <= sample_broken_records) \
+    .drop('__row_number') \
+    .groupBy(fk_columns) \
+    .agg(F.collect_list(F.struct('*')).alias('sample_records'))
+
+  return sampled_broken_df
