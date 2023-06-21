@@ -13,8 +13,10 @@ df1 = spark.createDataFrame([
   [ 3, 1, "Mike", 1 ]
 ], schema)
 
-df1.select(
-    '*', 
-    surrogate_key_hash(['id1', 'id2', 'name'], rtrim=True).alias('hash'),
-    surrogate_key_string(['id1', 'id2', 'name'], rtrim=True).alias('hash_input')
-  ).show()
+sk_df = df1.select(
+  '*', 
+  surrogate_key_hash(['id1', 'id2', 'name'], rtrim=True).alias('hash'),
+  surrogate_key_string(['id1', 'id2', 'name'], rtrim=True).alias('hash_input')
+)
+
+display(sk_df)

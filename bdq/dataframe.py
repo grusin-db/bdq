@@ -89,7 +89,7 @@ def display_compare_dataframes_results(df_diff:dict, show_added_records=True, sh
   if show_not_changed_records:
     display(df_diff['not_changed'])
 
-def fact_dim_broken_relationship(fact_df, fk_columns, dim_df, pk_columns, sample_broken_records=5):
+def fact_dim_broken_relationship(fact_df, fk_columns, dim_df, pk_columns, sample_broken_records=3):
   if len(pk_columns) != len(fk_columns):
     raise ValueError("pk_columns count must match fk_columns count")
   
