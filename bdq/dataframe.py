@@ -1,3 +1,13 @@
+__all__ = [ 
+  'compare_dataframes',
+  'uncache_compare_dataframes_results', 
+  'display_compare_dataframes_results', 
+  'fact_dim_broken_relationship',
+  'get_latest_records_window',
+  'get_latest_records',
+  'get_latest_records_with_pk_confict_detection_flag'
+]
+
 import pyspark.sql.functions as F
 from pyspark.sql import DataFrame, Window
 
@@ -122,3 +132,45 @@ def fact_dim_broken_relationship(fact_df, fk_columns, dim_df, pk_columns, sample
     .agg(F.collect_list(F.struct('*')).alias('sample_records'))
 
   return sampled_broken_df
+
+def get_latest_records_window(primary_key_columns, order_by_columns):
+  return Window \
+    .partitionBy(primary_key_columns) \
+    .orderBy([
+      F.col(c).desc() 
+      for c in order_by_columns
+    ])
+
+def get_latest_records(df, primary_key_columns, order_by_columns):
+  latest_records_windows_spec = get_latest_records_window(primary_key_columns, order_by_columns)
+
+  df2 = df.withColumn('__row_number', F.row_number().over(latest_records_windows_spec)) \
+    .filter('__row_number == 1') \
+    .drop('__row_number')
+
+  return df2
+
+def get_latest_records_with_pk_confict_detection_flag(df, primary_key_columns, order_by_columns):
+  latest_records_windows_spec = get_latest_records_window(primary_key_columns, order_by_columns)
+
+  checks_df = df.distinct() \
+    .withColumn('__row_number', F.row_number().over(latest_records_windows_spec)) \
+    .withColumn('__dense_rank', F.dense_rank().over(latest_records_windows_spec)) \
+    .filter('__dense_rank == 1') \
+    .withColumn('__conflict', F.col('__row_number') != 1)
+
+  conflict_pk_df = checks_df.filter('__conflict == TRUE') \
+    .select(primary_key_columns) \
+    .distinct()
+
+  join_expr = [
+    F.col(f'checks.{c}') == F.col(f'conflicts.{c}')
+    for c in primary_key_columns
+  ]
+
+  final_df = checks_df.alias('checks') \
+    .drop('__conflict', '__row_number', '__dense_rank') \
+    .join(conflict_pk_df.alias('conflicts'), join_expr, 'left_outer') \
+    .selectExpr('checks.*', f'case when conflicts.{primary_key_columns[0]} is not null then TRUE else FALSE end as __has_pk_conflict')
+
+  return final_df

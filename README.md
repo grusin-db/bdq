@@ -82,7 +82,7 @@ with support of optional uppercasing and trimming of key columns
 
 ```python
 from datetime import datetime
-from bdq.pyspark.functions import surrogate_key_hash, surrogate_key_string
+from bdq.functions import surrogate_key_hash, surrogate_key_string
 
 schema = "id1:long,id2:long,name:string,likes:int"
 
@@ -120,7 +120,7 @@ with support of showing sample data from fact table that did not satisfy integri
 
 ```python
 from bdq import fact_dim_broken_relationship
-from bdq.pyspark.functions import surrogate_key_hash, surrogate_key_string
+from bdq.functions import surrogate_key_hash, surrogate_key_string
 
 fact_df = spark.createDataFrame([
     [ "Grzegorz", "IT", "EU" ],
@@ -171,3 +171,67 @@ broken_sk_df = fact_dim_broken_relationship(
 >> +----+-------+------------------------------------------------------------------------------------+
 >> |IT  |USA    |[{IT, USA, Alice1, ��xz4q_��\ra�-��Vz}, {IT, USA, Alice2, ��xz4q_��\ra�-��Vz}]|
 >> +----+-------+------------------------------------------------------------------------------------+
+```
+
+## Get latest records 
+with optional primary key conflict resolution, where there are multiple records being candidate for latest record, but they have different attribuets and there is no way of determining which one is the latest.
+
+```python
+from datetime import datetime as dt
+from bdq import get_latest_records, get_latest_records_with_pk_confict_detection_flag
+
+increment_data =  [
+  (1, dt(2000, 1, 1, 0, 0, 0), "1001")
+  ,(1, dt(2000, 1, 1, 2, 0, 0), "1002")
+  ,(2, dt(2000, 1, 1, 0, 0, 0), "2001") #carbon copy duplicate
+  ,(2, dt(2000, 1, 1, 0, 0, 0), "2001") #carbon copy duplicate
+  ,(3, dt(2000, 1, 1, 0, 0, 0), "3001")
+  ,(3, dt(2000, 1, 1, 2, 0, 0), "3002#1") #pk conflict, two entries with the same technical fields, but different atributes, which one to chose?
+  ,(3, dt(2000, 1, 1, 2, 0, 0), "3002#2") #pk conflict
+]
+
+df = spark.createDataFrame(increment_data, "pk:int,change_ts:timestamp,attr:string")
+df.show(truncate=True)
+
+>> +---+-------------------+------+
+>> | pk|          change_ts|  attr|
+>> +---+-------------------+------+
+>> |  1|2000-01-01 00:00:00|  1001|
+>> |  1|2000-01-01 02:00:00|  1002|
+>> |  2|2000-01-01 00:00:00|  2001|
+>> |  2|2000-01-01 00:00:00|  2001|
+>> |  3|2000-01-01 00:00:00|  3001|
+>> |  3|2000-01-01 02:00:00|3002#1|
+>> |  3|2000-01-01 02:00:00|3002#2|
+>> +---+-------------------+------+
+
+primary_key_columns = ['pk']
+order_by_columns = ['change_ts']
+
+# will randomly chose one pk in case of conflict, without any notification about conflicts
+simple_get_latest_df = get_latest_records(df, primary_key_columns, order_by_columns)
+simple_get_latest_df.show(truncate=True)
+
+>> +---+-------------------+------+
+>> | pk|          change_ts|  attr|
+>> +---+-------------------+------+
+>> |  1|2000-01-01 02:00:00|  1002|
+>> |  2|2000-01-01 00:00:00|  2001|
+>> |  3|2000-01-01 02:00:00|3002#1|
+>> +---+-------------------+------+
+
+# will flag records which cause conflicts and cannot be resolved
+# bad records need to be quarantined and handled in special process
+conflict_get_latest_df = get_latest_records_with_pk_confict_detection_flag(df, primary_key_columns, order_by_columns)
+conflict_get_latest_df.show(truncate=True)
+
+>> +---+-------------------+------+-----------------+
+>> | pk|          change_ts|  attr|__has_pk_conflict|
+>> +---+-------------------+------+-----------------+
+>> |  1|2000-01-01 02:00:00|  1002|            false|
+>> |  2|2000-01-01 00:00:00|  2001|            false|
+>> |  3|2000-01-01 02:00:00|3002#2|             true|
+>> |  3|2000-01-01 02:00:00|3002#1|             true|
+>> +---+-------------------+------+-----------------+
+
+```
