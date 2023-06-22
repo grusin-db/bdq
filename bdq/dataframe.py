@@ -6,12 +6,12 @@ __all__ = [
   'get_latest_records_window',
   'get_latest_records',
   'get_latest_records_with_pk_confict_detection_flag',
-  'get_column_name_combinations'
+
 ]
 
 import sys
-from itertools import combinations
 import pyspark.sql.functions as F
+import pyspark.sql.types as T
 from pyspark.sql import DataFrame, Window
 
 
@@ -180,28 +180,4 @@ def get_latest_records_with_pk_confict_detection_flag(df, primary_key_columns, o
   return final_df
 
 
-def get_column_name_combinations(dynamic_column_names, fixed_column_names=None, max_len=None):
-  fixed_column_names = tuple(fixed_column_names or [])
-  max_len = (max_len or sys.maxsize) - len(fixed_column_names)
-
-  if fixed_column_names:
-    yield fixed_column_names
-
-  if set(fixed_column_names).intersection(dynamic_column_names):
-    raise ValueError("fixed column names may not contain dynamic column names")
-
-  def _unique(a, b):
-    seen = set()
-    return [
-      x 
-      for x in a + b
-      if not (x in seen or seen.add(x))
-    ]
-
-  for n in range(1, len(dynamic_column_names) + 1):
-    if n >= max_len + 1:
-      break
-
-    for c in combinations(dynamic_column_names, n):
-      yield tuple(_unique(fixed_column_names, c))
 
