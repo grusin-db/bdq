@@ -5,11 +5,16 @@ __all__ = [
   'fact_dim_broken_relationship',
   'get_latest_records_window',
   'get_latest_records',
-  'get_latest_records_with_pk_confict_detection_flag'
+  'get_latest_records_with_pk_confict_detection_flag',
+  'validate_primary_key_candidate',
+  'validate_primary_key_candidate_combinations'
 ]
 
+import sys
 import pyspark.sql.functions as F
+import pyspark.sql.types as T
 from pyspark.sql import DataFrame, Window
+from . import get_column_names_combinations, DAG
 
 def compare_dataframes(df1:DataFrame, df2:DataFrame, key_columns:list[str], cache_results=False) -> DataFrame:
   df1 = df1.alias('df1')
@@ -174,3 +179,59 @@ def get_latest_records_with_pk_confict_detection_flag(df, primary_key_columns, o
     .selectExpr('checks.*', f'case when conflicts.{primary_key_columns[0]} is not null then TRUE else FALSE end as __has_pk_conflict')
 
   return final_df
+
+def validate_primary_key_candidate(df, key_columns):
+  record_count = df.count()
+
+  checks_df = df.groupBy(*key_columns) \
+    .agg(F.count(F.lit(1)).alias('cnt')) \
+    .filter('cnt > 1')
+  
+  return {
+    'record_count': record_count
+    ,'failed_records': checks_df.select(F.sum('cnt')).first()[0] or 0
+    ,'failed_df': df
+  }
+
+def validate_primary_key_candidate_combinations(df:DataFrame, combinations: list[list[str]], max_workers:int, verbose=False):
+  graph = DAG()
+
+  validate_functions_map = {}
+
+  solutions = []
+
+  for c in combinations:
+    def get_check_function(key_columns):
+      def _wrapped():
+        failed = validate_primary_key_candidate(df, key_columns=key_columns)['failed_records']
+        #no need to go that route further if there were no failures, it's a PK!
+        if failed == 0:
+          solutions.append(key_columns)
+          return graph.BREAK
+        
+        return list(key_columns)
+      
+      _wrapped.__qualname__ = f"validate({str(list(c))})"
+      return _wrapped
+    
+    _v = get_check_function(c)
+      
+    validate_functions_map[c] = _v
+    
+    depends_on = [
+      function
+      for columns, function in validate_functions_map.items()
+      if set(columns).issubset(set(c)) 
+      and set(columns) != set(c) 
+      and function != _v
+    ]
+
+    if verbose:
+      print(f"creating validator for {c}: {depends_on=}")
+
+    graph.node(*depends_on)(_v)
+
+  graph.execute(max_workers=max_workers)
+
+  return solutions
+ 
