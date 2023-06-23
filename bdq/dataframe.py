@@ -6,14 +6,15 @@ __all__ = [
   'get_latest_records_window',
   'get_latest_records',
   'get_latest_records_with_pk_confict_detection_flag',
-  'validate_primary_key_candidate'
+  'validate_primary_key_candidate',
+  'validate_primary_key_candidate_combinations'
 ]
 
 import sys
 import pyspark.sql.functions as F
 import pyspark.sql.types as T
 from pyspark.sql import DataFrame, Window
-from . import get_column_names_combinations
+from . import get_column_names_combinations, DAG
 
 def compare_dataframes(df1:DataFrame, df2:DataFrame, key_columns:list[str], cache_results=False) -> DataFrame:
   df1 = df1.alias('df1')
@@ -192,4 +193,44 @@ def validate_primary_key_candidate(df, key_columns):
     ,'failed_df': df
   }
 
+def validate_primary_key_candidate_combinations(df:DataFrame, combinations: list[list[str]], max_workers:int, verbose=False):
+  graph = DAG()
 
+  validate_functions_map = {}
+
+  solutions = []
+
+  for c in combinations:
+    def get_check_function(key_columns):
+      def _wrapped():
+        failed = validate_primary_key_candidate(df, key_columns=key_columns)['failed_records']
+        #no need to go that route further if there were no failures, it's a PK!
+        if failed == 0:
+          solutions.append(key_columns)
+          return graph.BREAK
+        
+        return list(key_columns)
+      
+      _wrapped.__qualname__ = f"validate({str(list(c))})"
+      return _wrapped
+    
+    _v = get_check_function(c)
+      
+    if len(c) == 1:
+      validate_functions_map[c[0]] = _v
+      depends_on = []
+    else:
+      depends_on = [
+        validate_functions_map[column_name]
+        for column_name in c
+      ]
+
+    if verbose:
+      print(f"creating validator for {c}: {depends_on=}")
+
+    graph.node(*depends_on)(_v)
+
+  graph.execute(max_workers=max_workers)
+
+  return solutions
+ 
