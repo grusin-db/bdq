@@ -216,14 +216,15 @@ def validate_primary_key_candidate_combinations(df:DataFrame, combinations: list
     
     _v = get_check_function(c)
       
-    if len(c) == 1:
-      validate_functions_map[c[0]] = _v
-      depends_on = []
-    else:
-      depends_on = [
-        validate_functions_map[column_name]
-        for column_name in c
-      ]
+    validate_functions_map[c] = _v
+    
+    depends_on = [
+      function
+      for columns, function in validate_functions_map.items()
+      if set(columns).issubset(set(c)) 
+      and set(columns) != set(c) 
+      and function != _v
+    ]
 
     if verbose:
       print(f"creating validator for {c}: {depends_on=}")
