@@ -19,7 +19,7 @@ def c():
 @graph.node(b, c, a)
 def d():
   time.sleep(7)
-  return "d man"
+  return "g man"
 
 @graph.node(a)
 def e():

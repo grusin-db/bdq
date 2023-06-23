@@ -235,3 +235,83 @@ conflict_get_latest_df.show(truncate=True)
 >> +---+-------------------+------+-----------------+
 
 ```
+
+## Find composite primary key candidates
+Given list of possible columns, constructs the lists of all possible combinations of composite primary keys, and executes concurrently to determine if given set of columns is a valid primary key. Uses minimum possible amount of queries against spark by skipping validation paths that are based on already validated primary key combinations.
+
+```python
+import bdq
+import pyspark.sql.functions as F
+
+df = spark.range(0, 100) \
+  .withColumn('type', F.expr('(id / 10)::int + 1')) \
+  .withColumn('reminder', F.expr('id % 10')) \
+  .withColumn('static', F.lit('A')) \
+  .withColumn('round_robin', F.expr('id % 2'))
+
+display(df)
+
+all_combinations = list(bdq.get_column_names_combinations(df.columns))
+
+bdq.validate_primary_key_candidate_combinations(df, all_combinations, max_workers=10, verbose=True)
+>> [('id',), ('type', 'reminder')]
+```
+
+## Execute DAG having nodes as python functions
+```python
+import bdq
+import time
+
+graph = bdq.DAG()
+
+@graph.node()
+def a():
+  time.sleep(2)
+
+@graph.node()
+def b():
+  time.sleep(3)
+  return "beeep"
+
+@graph.node(b)
+def c():
+  time.sleep(5)
+
+@graph.node(b, c, a)
+def d():
+  time.sleep(7)
+  return "g man"
+
+@graph.node(a)
+def e():
+  time.sleep(3)
+  raise ValueError("omg, crash!")
+
+@graph.node(e)
+def f():
+  print("this will never execute")
+
+graph.execute(max_workers=10)
+
+for node, state in graph.nodes.items():
+  print(f"{node}: {state.result=}, {state.completed.is_set()=}, {state.exception=}")
+
+>> Waiting for all tasks to finish...
+>>   starting: <function a at 0x7f9a248c1ca0>
+>>   starting: <function b at 0x7f9a248c1a60>
+>>   starting: <function e at 0x7f9a248c18b0>
+>>   finished: <function a at 0x7f9a248c1ca0>, result: None (still running: 2)
+>>   starting: <function c at 0x7f9a248c19d0>
+>>   finished: <function b at 0x7f9a248c1a60>, result: beeep (still running: 2)
+>>   error: <function e at 0x7f9a248c18b0>: omg, crash! (still running: 1)
+>>   starting: <function d at 0x7f9a248c1940>
+>>   finished: <function c at 0x7f9a248c19d0>, result: None (still running: 1)
+>>   finished: <function d at 0x7f9a248c1940>, result: d man (still running: 0)
+>> All tasks finished, shutting down
+>> <function a at 0x7f9a248c1ca0>: state.result=None, state.completed.is_set()=True, state.exception=None
+>> <function b at 0x7f9a248c1a60>: state.result='beeep', state.completed.is_set()=True, state.exception=None
+>> <function c at 0x7f9a248c19d0>: state.result=None, state.completed.is_set()=True, state.exception=None
+>> <function d at 0x7f9a248c1940>: state.result='g man', state.completed.is_set()=True, state.exception=None
+>> <function e at 0x7f9a248c18b0>: state.result=None, state.completed.is_set()=True, state.exception=ValueError('omg, crash!')
+>> <function f at 0x7f9a248c1820>: state.result=None, state.completed.is_set()=False, state.exception=None
+```
