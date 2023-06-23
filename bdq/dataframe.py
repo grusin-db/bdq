@@ -6,14 +6,14 @@ __all__ = [
   'get_latest_records_window',
   'get_latest_records',
   'get_latest_records_with_pk_confict_detection_flag',
-
+  'validate_primary_key_candidate'
 ]
 
 import sys
 import pyspark.sql.functions as F
 import pyspark.sql.types as T
 from pyspark.sql import DataFrame, Window
-
+from . import get_column_names_combinations
 
 def compare_dataframes(df1:DataFrame, df2:DataFrame, key_columns:list[str], cache_results=False) -> DataFrame:
   df1 = df1.alias('df1')
@@ -179,5 +179,17 @@ def get_latest_records_with_pk_confict_detection_flag(df, primary_key_columns, o
 
   return final_df
 
+def validate_primary_key_candidate(df, key_columns):
+  record_count = df.count()
+
+  checks_df = df.groupBy(*key_columns) \
+    .agg(F.count(F.lit(1)).alias('cnt')) \
+    .filter('cnt > 1')
+  
+  return {
+    'record_count': record_count
+    ,'failed_records': checks_df.select(F.sum('cnt')).first()[0] or 0
+    ,'failed_df': df
+  }
 
 
