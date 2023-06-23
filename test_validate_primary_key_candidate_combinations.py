@@ -11,4 +11,4 @@ display(df)
 
 all_combinations = list(bdq.get_column_names_combinations(df.columns))
 
-bdq.validate_primary_key_candidate_combinations(df, all_combinations, max_workers=10)
+assert bdq.validate_primary_key_candidate_combinations(df, all_combinations, max_workers=10, verbose=True) == [('id',), ('type', 'reminder')]
