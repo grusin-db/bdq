@@ -12,7 +12,7 @@ def raw_data_single_source(p):
 def raw_data_single_source_with_custom_name(p):
   return spark.range(100, 110)
 
-# returns two dataframes, and creates two spark views raw_data1, raw_data2
+# returns two dataframes, and creates two spark views 'raw_data1', 'raw_data2'
 @ppn.step(returns=["raw_data1", "raw_data2"])
 def raw_data_multi_source(p):
   df1 = spark.range(1000, 2000)
@@ -20,7 +20,8 @@ def raw_data_multi_source(p):
 
   return [df1, df2]
 
-# waits for raw data sources to finish, and combines the data into one unioned view of name `combine_data`
+# waits for raw data sources to finish, and combines the data into one unioned view `combine_data`
+# note that dependencies are python functions, not names of views (TODO: to handle view names as well)
 @ppn.step(depends_on=[raw_data_single_source, raw_data_single_source_with_custom_name, raw_data_multi_source])
 def combine_data(p):
   df = table('raw_data_single_source') \
@@ -38,12 +39,12 @@ def split_data(p):
 
   return [ df_odd, df_even ]
 
-#execute pipeline, returns map of all steps with their results (dataframes they returned), or exceptions if failed
-ppn()
+# executes pipeline using concurrent threads, one per each step, following the dependency DAG
+# returns map of all steps with their results (dataframes they returned), or exceptions if failed
+ppn(max_concurrent_steps=10)
 
 #show some final values
 print('even numbers:')
 print(table('even').limit(10).collect())
 print('odd numbers:')
-print(table('odds').limit(10).collect())
-
+print(table('odd').limit(10).collect())

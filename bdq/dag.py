@@ -8,11 +8,21 @@ __all__ = [
 ]
 
 class Node:
+  @property
+  def state(self):
+    pass
+
   def __init__(self):
     self.children: set[callable] = set()
     self.parents: set[callable] = set()
     self.completed = threading.Event()
     self.future: CF.Future = None
+    self.exception = None
+    self.result = None
+
+  def _reset(self):
+    self.completed = threading.Event()
+    self.future = None
     self.exception = None
     self.result = None
 
@@ -51,11 +61,29 @@ class DAG:
       
     return True
   
+  def is_success() -> bool:
+    pass
+
+  def get_error_nodes() -> list[Node]:
+    pass
+
+  def get_skipped_nodes() -> list[Node]:
+    pass
+
+  def get_success_nodes() -> list[Node]:
+    pass
+
+  def _reset_nodes(self):
+    for n in self.nodes.values():
+      n._reset()
+  
   def execute(self, max_workers, verbose=True):
     lock = threading.RLock()
     running_nodes = 0
     all_nodes_finished_event = threading.Event()
     executor = CF.ThreadPoolExecutor(max_workers=max_workers)
+
+    self._reset_nodes()
     
     def _get_done_callback(node: Node):
       def _handle_done(fn):
@@ -109,4 +137,5 @@ class DAG:
     all_nodes_finished_event.wait()
     if verbose:
       print("All tasks finished, shutting down")
+    
     executor.shutdown()

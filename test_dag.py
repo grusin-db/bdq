@@ -1,8 +1,10 @@
 import bdq
 import time
 
+#create graph
 graph = bdq.DAG()
 
+#define nodes
 @graph.node()
 def a():
   time.sleep(2)
@@ -12,25 +14,29 @@ def b():
   time.sleep(3)
   return "beeep"
 
-@graph.node(b)
+#nodes can depend on other nodes
+@graph.node(depends_on=[b])
 def c():
   time.sleep(5)
 
-@graph.node(b, c, a)
+#any amount of dependencies is allowed
+@graph.node(depends_on=[b, c, a])
 def d():
   time.sleep(7)
   return "g man"
 
-@graph.node(a)
+@graph.node(depends_on=[a])
 def e():
   time.sleep(3)
   raise ValueError("omg, crash!")
 
-@graph.node(e)
+@graph.node(depends_on=[e])
 def f():
   print("this will never execute")
 
+#execute DAG
 graph.execute(max_workers=10)
 
+#iterate over results
 for node, state in graph.nodes.items():
   print(f"{node}: {state.result=}, {state.completed.is_set()=}, {state.exception=}")

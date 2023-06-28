@@ -229,7 +229,7 @@ def validate_primary_key_candidate_combinations(df:DataFrame, combinations: list
     if verbose:
       print(f"creating validator for {c}: {depends_on=}")
 
-    graph.node(*depends_on)(_v)
+    graph.node(depends_on=depends_on)(_v)
 
   graph.execute(max_workers=max_workers)
 
