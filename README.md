@@ -358,8 +358,8 @@ def combine_data(p):
 
   return df
 
-# splits the combined_data into 'odds' and 'even' views
-@ppn.step(depends_on=[combine_data], returns=['odds', 'even'])
+# splits the combined_data into 'odd' and 'even' views
+@ppn.step(depends_on=[combine_data], returns=['odd', 'even'])
 def split_data(p):
   df_odd = table('combine_data').filter('id % 2 == 1')
   df_even = table('combine_data').filter('id % 2 == 0')
