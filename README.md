@@ -333,7 +333,7 @@ def raw_data_single_source(p):
 def raw_data_single_source_with_custom_name(p):
   return spark.range(100, 110)
 
-# returns two dataframes, and creates two spark views raw_data1, raw_data2
+# returns two dataframes, and creates two spark views 'raw_data1', 'raw_data2'
 @ppn.step(returns=["raw_data1", "raw_data2"])
 def raw_data_multi_source(p):
   df1 = spark.range(1000, 2000)
@@ -341,7 +341,8 @@ def raw_data_multi_source(p):
 
   return [df1, df2]
 
-# waits for raw data sources to finish, and combines the data into one unioned view of name `combine_data`
+# waits for raw data sources to finish, and combines the data into one unioned view `combine_data`
+# note that dependencies are python functions, not names of views (TODO: to handle view names as well)
 @ppn.step(depends_on=[raw_data_single_source, raw_data_single_source_with_custom_name, raw_data_multi_source])
 def combine_data(p):
   df = table('raw_data_single_source') \
@@ -369,7 +370,7 @@ print('odd numbers:')
 print(table('odd').limit(10).collect())
 
 >> Waiting for all tasks to finish...
->>   starting: raw_data_single_source() -> ['raw_data_single_source']
+>>  starting: raw_data_single_source() -> ['raw_data_single_source']
 >>  starting: raw_data_single_source_with_custom_name() -> ['raw_nice_name']
 >>  starting: raw_data_multi_source() -> ['raw_data1', 'raw_data2']
 >>  finished: raw_data_single_source() -> ['raw_data_single_source'] (still running: 2)
