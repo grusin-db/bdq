@@ -1,4 +1,5 @@
 import bdq
+from bdq import spark, table
 
 ppn = bdq.Pipeline(spark, "retail")
 

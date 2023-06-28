@@ -1,5 +1,6 @@
 from datetime import datetime as dt
 from bdq import get_latest_records, get_latest_records_with_pk_confict_detection_flag
+from bdq import spark
 
 increment_data =  [
   (1, dt(2000, 1, 1, 0, 0, 0), "1001")
