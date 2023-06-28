@@ -34,9 +34,23 @@ def e():
 def f():
   print("this will never execute")
 
+@graph.node(depends_on=[a])
+def g():
+  time.sleep(3)
+  return graph.BREAK
+
+@graph.node(depends_on=[g])
+def i():
+  print("this will never execute too")
+
 #execute DAG
 graph.execute(max_workers=10)
 
 #iterate over results
-for node, state in graph.nodes.items():
-  print(f"{node}: {state.result=}, {state.completed.is_set()=}, {state.exception=}")
+for fun, node in graph.nodes.items():
+  print(f"{fun}: {node.result=}, {node.completed.is_set()=}, {node.exception=}, {node.state=}")
+
+assert set(f.function.__name__ for f in graph.get_error_nodes()) == {'e'}
+assert set(f.function.__name__ for f in graph.get_skipped_nodes()) == {'f', 'g', 'i'}
+assert set(f.function.__name__ for f in graph.get_success_nodes()) == {'a', 'b', 'c', 'd'}
+assert graph.is_success() == False

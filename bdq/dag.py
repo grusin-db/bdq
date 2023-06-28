@@ -7,12 +7,24 @@ __all__ = [
   'DAG'
 ]
 
+class DAG:
+  ...
+
 class Node:
   @property
   def state(self):
-    pass
+    if self.exception:
+      return "ERROR"
+    if self.result == DAG.BREAK:
+        return "SKIPPED"
+    
+    if self.completed.is_set():
+      return "SUCCESS"
+    
+    return "SKIPPED"
 
-  def __init__(self):
+  def __init__(self, fun):
+    self.function = fun
     self.children: set[callable] = set()
     self.parents: set[callable] = set()
     self.completed = threading.Event()
@@ -26,6 +38,9 @@ class Node:
     self.exception = None
     self.result = None
 
+  def __repr__(self):
+    return f"Node({self.function}) -> {self.state}"
+
 class DAG:
   BREAK = threading.Event()
 
@@ -38,19 +53,19 @@ class DAG:
     if not isinstance(depends_on, Iterable):
       raise ValueError(f"depends_on must be a list of callables, instead got: {depends_on}")
     
-    def _graph_node(node):
-      self.nodes[node] = (self.nodes.get(node) or Node())
+    def _graph_node(fun):
+      self.nodes[fun] = (self.nodes.get(fun) or Node(fun))
 
       for p in depends_on:
         if not callable(p):
-          raise ValueError(f"{node=} dependency {p=} is not callable")
-        self.nodes[node].parents.add(p)
+          raise ValueError(f"{fun} dependency '{p}' is not callable")
+        self.nodes[fun].parents.add(p)
 
       for dep in depends_on:
-        self.nodes[dep] = (self.nodes.get(dep) or Node())
-        self.nodes[dep].children.add(node)
+        self.nodes[dep] = (self.nodes.get(dep) or Node(dep))
+        self.nodes[dep].children.add(fun)
 
-      return node
+      return fun
     
     return _graph_node
   
@@ -61,17 +76,24 @@ class DAG:
       
     return True
   
-  def is_success() -> bool:
-    pass
+  def is_success(self) -> bool:
+    return self.get_error_nodes() == []
 
-  def get_error_nodes() -> list[Node]:
-    pass
+  def _get_nodes_with_state(self, state):
+    return [
+      n
+      for n in self.nodes.values()
+      if n.state == state
+    ]
 
-  def get_skipped_nodes() -> list[Node]:
-    pass
+  def get_error_nodes(self) -> list[Node]:
+    return self._get_nodes_with_state("ERROR")
 
-  def get_success_nodes() -> list[Node]:
-    pass
+  def get_skipped_nodes(self) -> list[Node]:
+    return self._get_nodes_with_state("SKIPPED")
+
+  def get_success_nodes(self) -> list[Node]:
+    return self._get_nodes_with_state("SUCCESS")
 
   def _reset_nodes(self):
     for n in self.nodes.values():
