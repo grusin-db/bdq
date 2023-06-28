@@ -2,6 +2,11 @@ import threading
 import concurrent.futures as CF
 from collections.abc import Iterable
 
+__all__ = [ 
+  'Node',
+  'DAG'
+]
+
 class Node:
   def __init__(self):
     self.children: set[callable] = set()
@@ -17,7 +22,7 @@ class DAG:
   def __init__(self):
     self.nodes: dict[callable, Node] = {}
 
-  def node(self, *depends_on):
+  def node(self, *, depends_on=[]):
     depends_on = depends_on or []
 
     if not isinstance(depends_on, Iterable):
@@ -72,7 +77,7 @@ class DAG:
             self.nodes[node].exception = fn.exception()
           else:
             if verbose:
-              print(f"  finished: {node}, result: {fn.result()} (still running: {running_nodes})")
+              print(f"  finished: {node} (still running: {running_nodes})")
 
           if running_nodes == 0:
             all_nodes_finished_event.set()
@@ -93,9 +98,13 @@ class DAG:
 
     if verbose:
       print("Waiting for all tasks to finish...")
-    for n in self.nodes:
-      if self.is_dependency_met(n):
-        _start(n)
+    
+    if not self.nodes:
+      all_nodes_finished_event.set()
+    else:
+      for n in self.nodes:
+        if self.is_dependency_met(n):
+          _start(n)
 
     all_nodes_finished_event.wait()
     if verbose:

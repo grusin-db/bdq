@@ -315,3 +315,73 @@ for node, state in graph.nodes.items():
 >> <function e at 0x7f9a248c18b0>: state.result=None, state.completed.is_set()=True, state.exception=ValueError('omg, crash!')
 >> <function f at 0x7f9a248c1820>: state.result=None, state.completed.is_set()=False, state.exception=None
 ```
+
+## Execute pipeline of multiple steps
+using DAG component to handle pararel execution
+```python
+import bdq
+
+ppn = bdq.Pipeline(spark, "retail")
+
+# returns dataframe, and creates spark view 'raw_data_single_source'
+@ppn.step()
+def raw_data_single_source(p):
+  return spark.range(1, 10)
+
+# returns dataframe, and creates spark view 'raw_nice_name'
+@ppn.step(returns=["raw_nice_name"])
+def raw_data_single_source_with_custom_name(p):
+  return spark.range(100, 110)
+
+# returns two dataframes, and creates two spark views raw_data1, raw_data2
+@ppn.step(returns=["raw_data1", "raw_data2"])
+def raw_data_multi_source(p):
+  df1 = spark.range(1000, 2000)
+  df2 = spark.range(2000, 3000)
+
+  return [df1, df2]
+
+# waits for raw data sources to finish, and combines the data into one unioned view of name `combine_data`
+@ppn.step(depends_on=[raw_data_single_source, raw_data_single_source_with_custom_name, raw_data_multi_source])
+def combine_data(p):
+  df = table('raw_data_single_source') \
+    .union(table('raw_nice_name')) \
+    .union(table('raw_data1')) \
+    .union(table('raw_data2'))
+
+  return df
+
+# splits the combined_data into 'odds' and 'even' views
+@ppn.step(depends_on=[combine_data], returns=['odds', 'even'])
+def split_data(p):
+  df_odd = table('combine_data').filter('id % 2 == 1')
+  df_even = table('combine_data').filter('id % 2 == 0')
+
+  return [ df_odd, df_even ]
+
+#execute pipeline, returns map of all steps with their results (dataframes they returned), or exceptions if failed
+ppn()
+
+#show some final values
+print('even numbers:')
+print(table('even').limit(10).collect())
+print('odd numbers:')
+print(table('odd').limit(10).collect())
+
+>> Waiting for all tasks to finish...
+>>   starting: raw_data_single_source() -> ['raw_data_single_source']
+>>  starting: raw_data_single_source_with_custom_name() -> ['raw_nice_name']
+>>  starting: raw_data_multi_source() -> ['raw_data1', 'raw_data2']
+>>  finished: raw_data_single_source() -> ['raw_data_single_source'] (still running: 2)
+>>  finished: raw_data_single_source_with_custom_name() -> ['raw_nice_name'] (still running: 1)
+>>  starting: combine_data() -> ['combine_data']
+>>  finished: raw_data_multi_source() -> ['raw_data1', 'raw_data2'] (still running: 1)
+>>  starting: split_data() -> ['odds', 'even']
+>>  finished: combine_data() -> ['combine_data'] (still running: 1)
+>>  finished: split_data() -> ['odds', 'even'] (still running: 0)
+>>All tasks finished, shutting down
+>>even numbers:
+>>[Row(id=2), Row(id=4), Row(id=6), Row(id=8), Row(id=100), Row(id=102), Row(id=104), Row(id=106), Row(id=108), Row(id=1000)]
+>>odd numbers:
+>>[Row(id=1), Row(id=3), Row(id=5), Row(id=7), Row(id=9), Row(id=101), Row(id=103), Row(id=105), Row(id=107), Row(id=109)]
+```
