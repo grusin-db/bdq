@@ -20,17 +20,28 @@ class Node:
     
     if self.completed.is_set():
       return "SUCCESS"
+    elif self.future is not None:
+      return "RUNNING"
     
     return "SKIPPED"
+  
+  @property
+  def nodes(self):
+    return self.dag.nodes
 
-  def __init__(self, fun):
-    self.function = fun
+  def __init__(self, function, dag:DAG=None):
+    if function is None or not callable(function):
+      raise ValueError("function must be a callable, not may not be None")
+    
+    self.name = function.__name__
+    self.dag = dag
+    self.function = function
     self.children: set[callable] = set()
     self.parents: set[callable] = set()
     self.completed = threading.Event()
     self.future: CF.Future = None
-    self.exception = None
-    self.result = None
+    self.exception:Exception = None
+    self.result:Any = None
 
   def _reset(self):
     self.completed = threading.Event()
@@ -39,7 +50,13 @@ class Node:
     self.result = None
 
   def __repr__(self):
-    return f"Node({self.function}) -> {self.state}"
+    res = { 
+      'state': self.state
+      ,'result': self.result
+      ,'exception': self.exception
+      ,'completed': self.completed.is_set()
+    }
+    return f"Node({self.function}: {res} )"
 
 class DAG:
   BREAK = threading.Event()
@@ -54,7 +71,10 @@ class DAG:
       raise ValueError(f"depends_on must be a list of callables, instead got: {depends_on}")
     
     def _graph_node(fun):
-      self.nodes[fun] = (self.nodes.get(fun) or Node(fun))
+      if fun in self.nodes:
+        raise ValueError("function {fun} is already present in a DAG")
+      
+      self.nodes[fun] = Node(fun, self)
 
       for p in depends_on:
         if not callable(p):
@@ -62,12 +82,22 @@ class DAG:
         self.nodes[fun].parents.add(p)
 
       for dep in depends_on:
-        self.nodes[dep] = (self.nodes.get(dep) or Node(dep))
+        self.nodes[dep] = (self.nodes.get(dep) or Node(dep, self))
         self.nodes[dep].children.add(fun)
 
       return fun
     
     return _graph_node
+  
+  def add_edge(self, from_node, to_node):
+    if from_node not in self.nodes:
+      raise ValueError(f"from_node does not exist: {from_node}")
+    
+    if to_node not in self.nodes:
+      raise ValueError(f"to_node does not exist: {to_node}")
+    
+    self.nodes[from_node].children.add(to_node)
+    self.nodes[to_node].parents.add(from_node)
   
   def is_dependency_met(self, node):
     for p in self.nodes[node].parents:
@@ -136,14 +166,17 @@ class DAG:
 
     def _start(node):
       with lock:
-        if verbose:
-          print(f"  starting: {node}")
+
         
         nonlocal running_nodes
         running_nodes = running_nodes + 1
 
         fn = executor.submit(node)
         self.nodes[node].future = fn
+        
+        if verbose:
+          print(f"  starting: {node}")
+        
         fn.add_done_callback(_get_done_callback(node))
 
     if verbose:
