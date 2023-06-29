@@ -196,7 +196,7 @@ def validate_primary_key_candidate(df, key_columns):
 def validate_primary_key_candidate_combinations(df:DataFrame, combinations: list[list[str]], max_workers:int, verbose=False):
   graph = DAG()
 
-  validate_functions_map = {}
+  validate_nodes = {}
 
   solutions = []
 
@@ -214,22 +214,20 @@ def validate_primary_key_candidate_combinations(df:DataFrame, combinations: list
       _wrapped.__qualname__ = f"validate({str(list(c))})"
       return _wrapped
     
-    _v = get_check_function(c)
+    check_function = get_check_function(c)
       
-    validate_functions_map[c] = _v
-    
     depends_on = [
-      function
-      for columns, function in validate_functions_map.items()
-      if set(columns).issubset(set(c)) 
-      and set(columns) != set(c) 
-      and function != _v
+      node
+      for columns, node in validate_nodes.items()
+      if set(columns).issubset(set(c))
+      and set(columns) != set(c)
     ]
 
     if verbose:
       print(f"creating validator for {c}: {depends_on=}")
 
-    graph.node(depends_on=depends_on)(_v)
+    node = graph.node(depends_on=depends_on)(check_function)
+    validate_nodes[c] = node
 
   graph.execute(max_workers=max_workers)
 

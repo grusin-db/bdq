@@ -41,11 +41,15 @@ def split_data(p):
   return [ df_odd, df_even ]
 
 # executes pipeline using concurrent threads, one per each step, following the dependency DAG
-# returns map of all steps with their results (dataframes they returned), or exceptions if failed
-ppn(max_concurrent_steps=10)
+# pipeline is a normal python callable object, as if it was a function, it returns a list of all steps
+pipeline_results = ppn(max_concurrent_steps=10)
+
+print('pipeline results:')
+print(pipeline_results)
 
 #show some final values
 print('even numbers:')
 print(table('even').limit(10).collect())
 print('odd numbers:')
 print(table('odd').limit(10).collect())
+
