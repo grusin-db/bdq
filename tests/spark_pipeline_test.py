@@ -1,7 +1,7 @@
 import bdq
 from bdq import spark, table
 
-ppn = bdq.Pipeline(spark, "retail")
+ppn = bdq.SparkPipeline(spark, "retail")
 
 # returns dataframe, and creates spark view 'raw_data_single_source'
 @ppn.step()

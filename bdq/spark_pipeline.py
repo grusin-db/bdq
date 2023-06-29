@@ -3,11 +3,11 @@ import bdq
 from pyspark.sql import DataFrame, SparkSession
 
 __all__ = [
-  'Pipeline'
+  'SparkPipeline'
   ,'Step'
 ]
 
-class Pipeline:
+class SparkPipeline:
   ...
 
 class Step():
@@ -31,7 +31,7 @@ class Step():
   def __name__(self) -> str:
     return f"(]{self.name})"
   
-  def __init__(self, function, returns:list[str]=None, pipeline:Pipeline=None):
+  def __init__(self, function, returns:list[str]=None, pipeline:SparkPipeline=None):
     if function is None or not callable(function):
       raise ValueError("function must be a callable, not may not be None")
     
@@ -69,7 +69,7 @@ class Step():
 
     return ret
     
-class Pipeline:
+class SparkPipeline:
   def __init__(self, spark:SparkSession, name:str):
     self.spark = spark
     self.name = name
@@ -102,7 +102,7 @@ class Pipeline:
   def __call__(self, max_concurrent_steps=10):
     self._dag.execute(max_workers=max_concurrent_steps, verbose=True)
     if self.is_success():
-      return self._unpack_state_from_node_list(self._dag.nodes.values())
+      return self._unpack_state_from_node_list(self._dag.nodes)
     
     error_steps = self.get_error_steps()
 

@@ -13,5 +13,5 @@ dbutils = DBUtils(spark)
 from .dag import DAG
 from .schema import *
 from .dataframe import *
-from .pipeline import Pipeline
+from .spark_pipeline import SparkPipeline
 
