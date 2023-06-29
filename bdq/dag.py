@@ -1,6 +1,6 @@
 import threading
 import concurrent.futures as CF
-from collections.abc import Iterable
+from collections.abc import Iterable, Callable
 from typing import Any
 
 __all__ = [ 
@@ -73,7 +73,8 @@ class DAG:
   BREAK = threading.Event()
 
   def __init__(self):
-    self.nodes: set[Node] = set()
+    self.nodes: dict[Node, Callable] = {}
+    self.functions: dict[Callable, Node] = {}
 
   def node(self, *, depends_on:list[Node]=[]):
     depends_on = depends_on or []
@@ -82,12 +83,16 @@ class DAG:
       raise ValueError(f"depends_on must be a list of Nodes, instead got: {depends_on}")
     
     def _graph_node(fun):
+      if fun in self.functions:
+        raise ValueError(f"Function {fun} is already called by a graph")
+  
       #add new node
       node = Node(fun, self)
       if node in self.nodes:
         raise ValueError(f"Node {node} is already present in a DAG")
-      
-      self.nodes.add(node)
+
+      self.nodes[node] = fun
+      self.functions[fun] = node
 
       #validate first
       for dep_node in depends_on:

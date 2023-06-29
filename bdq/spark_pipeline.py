@@ -13,7 +13,7 @@ class SparkPipeline:
 class Step():
   @property
   def _node(self) -> bdq.dag.Node:
-    return self.pipeline._dag.nodes[self]
+    return self.pipeline._dag.functions[self]
   
   @property
   def state(self):
@@ -75,11 +75,15 @@ class SparkPipeline:
     self.name = name
     self._dag = bdq.DAG()
 
-  def step(self, *, returns:list[str]=None, depends_on:list[callable]=None) -> Step:
+  def step(self, *, returns:list[str]=None, depends_on:list[Step]=None) -> Step:
+    depends_on = depends_on or []
+    
     def _wrapped(func):
       # TODO: log creation of steps
       s = Step(func, returns=returns, pipeline=self)
-      return self._dag.node(depends_on=depends_on)(s)
+      deps = [n._node for n in depends_on]
+      self._dag.node(depends_on=deps)(s)
+      return s
 
     return _wrapped
   

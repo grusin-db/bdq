@@ -53,3 +53,20 @@ print(table('even').limit(10).collect())
 print('odd numbers:')
 print(table('odd').limit(10).collect())
 
+#get skipped steps
+assert ppn.get_skipped_steps() == []
+
+#get errored steps (you would need to 'adjust' code of on of the steps to make it fail to see something here)
+assert ppn.get_error_steps() == []
+
+#get successfull steps
+assert set(ppn.get_success_steps()) == set([
+  raw_data_single_source_with_custom_name,
+  raw_data_multi_source,
+  split_data,
+  combine_data,
+  raw_data_single_source
+])
+
+assert type(ppn.get_success_steps()[0]) == bdq.spark_pipeline.Step
+
