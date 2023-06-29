@@ -261,57 +261,174 @@ bdq.validate_primary_key_candidate_combinations(df, all_combinations, max_worker
 ```python
 import bdq
 import time
+import pytest
 
+#create graph
 graph = bdq.DAG()
 
+#define nodes
 @graph.node()
 def a():
   time.sleep(2)
+  return 5
 
 @graph.node()
 def b():
   time.sleep(3)
   return "beeep"
 
-@graph.node(b)
+#nodes can depend on other nodes
+@graph.node(depends_on=[b])
 def c():
   time.sleep(5)
+  return 8
 
-@graph.node(b, c, a)
+#any amount of dependencies is allowed
+@graph.node(depends_on=[b, c, a])
 def d():
   time.sleep(7)
-  return "g man"
+  #beep as many times as absolute difference between 'c' and 'a'
+  return "g man say: " + b.result * abs(c.result - a.result)
 
-@graph.node(a)
+@graph.node(depends_on=[a])
 def e():
   time.sleep(3)
-  raise ValueError("omg, crash!")
+  #you can refer to parent nodes, to get information about their results
+  raise ValueError(f"omg, crash! {a.result}")
 
-@graph.node(e)
+@graph.node(depends_on=[e])
 def f():
   print("this will never execute")
+  return "this will never execute"
 
+@graph.node(depends_on=[a])
+def g():
+  time.sleep(3)
+  #we do not want to execute children nodes anymore
+  #return graph.BREAK this will cause that all children/successors in graph will be skipped without errror
+  return graph.BREAK
+
+@graph.node(depends_on=[g])
+def i():
+  print("this will never execute too")
+  return "this will never execute too"
+
+#execute DAG
 graph.execute(max_workers=10)
 
-for node, state in graph.nodes.items():
-  print(f"{node}: {state.result=}, {state.completed.is_set()=}, {state.exception=}")
+#iterate over results
+print("Iterate over results...")
+for node in graph.nodes:
+  print(node)
 
 >> Waiting for all tasks to finish...
->>   starting: <function a at 0x7f9a248c1ca0>
->>   starting: <function b at 0x7f9a248c1a60>
->>   starting: <function e at 0x7f9a248c18b0>
->>   finished: <function a at 0x7f9a248c1ca0>, result: None (still running: 2)
->>   starting: <function c at 0x7f9a248c19d0>
->>   finished: <function b at 0x7f9a248c1a60>, result: beeep (still running: 2)
->>   error: <function e at 0x7f9a248c18b0>: omg, crash! (still running: 1)
->>   starting: <function d at 0x7f9a248c1940>
->>   finished: <function c at 0x7f9a248c19d0>, result: None (still running: 1)
->>   finished: <function d at 0x7f9a248c1940>, result: d man (still running: 0)
+>>   starting: Node(<function a at 0x7f50f4b9ee50>: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   starting: Node(<function b at 0x7f50f4b53040>: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   starting: Node(<function e at 0x7f50f4b53b80>: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   starting: Node(<function g at 0x7f50f4b535e0>: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   finished: Node(<function a at 0x7f50f4b9ee50>: {'state': 'SUCCESS', 'result': 5, 'exception': None, 'completed': True} ) (still running: 3)
+>>   starting: Node(<function c at 0x7f50f4b534c0>: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   finished: Node(<function b at 0x7f50f4b53040>: {'state': 'SUCCESS', 'result': 'beeep', 'exception': None, 'completed': True} ) (still running: 3)
+>>   error: Node(<function e at 0x7f50f4b53b80>: {'state': 'ERROR', 'result': None, 'exception': ValueError('omg, crash! 5'), 'completed': True} ): omg, crash! 5 (still running: 2)
+>>   finished: Node(<function g at 0x7f50f4b535e0>: {'state': 'SKIPPED', 'result': <threading.Event object at 0x7f50ec16c9d0>, 'exception': None, 'completed': True} ) (still running: 1)
+>>   starting: Node(<function d at 0x7f50f4b53a60>: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   finished: Node(<function c at 0x7f50f4b534c0>: {'state': 'SUCCESS', 'result': 8, 'exception': None, 'completed': True} ) (still running: 1)
+>>   finished: Node(<function d at 0x7f50f4b53a60>: {'state': 'SUCCESS', 'result': 'g man say: beeepbeeepbeeep', 'exception': None, 'completed': True} ) (still running: 0)
 >> All tasks finished, shutting down
->> <function a at 0x7f9a248c1ca0>: state.result=None, state.completed.is_set()=True, state.exception=None
->> <function b at 0x7f9a248c1a60>: state.result='beeep', state.completed.is_set()=True, state.exception=None
->> <function c at 0x7f9a248c19d0>: state.result=None, state.completed.is_set()=True, state.exception=None
->> <function d at 0x7f9a248c1940>: state.result='g man', state.completed.is_set()=True, state.exception=None
->> <function e at 0x7f9a248c18b0>: state.result=None, state.completed.is_set()=True, state.exception=ValueError('omg, crash!')
->> <function f at 0x7f9a248c1820>: state.result=None, state.completed.is_set()=False, state.exception=None
+>>
+>> Iterate over results...
+>> Node(<function a at 0x7f50f4b9ee50>: {'state': 'SUCCESS', 'result': 5, 'exception': None, 'completed': True} )
+>> Node(<function b at 0x7f50f4b53040>: {'state': 'SUCCESS', 'result': 'beeep', 'exception': None, 'completed': True} )
+>> Node(<function c at 0x7f50f4b534c0>: {'state': 'SUCCESS', 'result': 8, 'exception': None, 'completed': True} )
+>> Node(<function d at 0x7f50f4b53a60>: {'state': 'SUCCESS', 'result': 'g man say: beeepbeeepbeeep', 'exception': None, 'completed': True} )
+>> Node(<function e at 0x7f50f4b53b80>: {'state': 'ERROR', 'result': None, 'exception': ValueError('omg, crash! 5'), 'completed': True} )
+>> Node(<function f at 0x7f50f4b530d0>: {'state': 'SKIPPED', 'result': None, 'exception': None, 'completed': False} )
+>> Node(<function g at 0x7f50f4b535e0>: {'state': 'SKIPPED', 'result': <threading.Event object at 0x7f50ec16c9d0>, 'exception': None, 'completed': True} )
+>> Node(<function i at 0x7f50f4b53280>: {'state': 'SKIPPED', 'result': None, 'exception': None, 'completed': False} )
+```
+
+## Execute spark pipeline of multiple steps
+using DAG component to handle parallel execution
+```python
+import bdq
+from bdq import spark, table
+
+ppn = bdq.SparkPipeline(spark, "retail")
+
+# returns dataframe, and creates spark view 'raw_data_single_source'
+@ppn.step()
+def raw_data_single_source(p):
+  return spark.range(1, 10)
+
+# returns dataframe, and creates spark view 'raw_nice_name'
+@ppn.step(returns=["raw_nice_name"])
+def raw_data_single_source_with_custom_name(p):
+  return spark.range(100, 110)
+
+# returns two dataframes, and creates two spark views 'raw_data1', 'raw_data2'
+@ppn.step(returns=["raw_data1", "raw_data2"])
+def raw_data_multi_source(p):
+  df1 = spark.range(1000, 2000)
+  df2 = spark.range(2000, 3000)
+
+  return [df1, df2]
+
+# waits for raw data sources to finish, and combines the data into one unioned view `combine_data`
+# note that dependencies are python functions, not names of views (TODO: to handle view names as well)
+@ppn.step(depends_on=[raw_data_single_source, raw_data_single_source_with_custom_name, raw_data_multi_source])
+def combine_data(p):
+  df = table('raw_data_single_source') \
+    .union(table('raw_nice_name')) \
+    .union(table('raw_data1')) \
+    .union(table('raw_data2'))
+
+  return df
+
+# splits the combined_data into 'odd' and 'even' views
+@ppn.step(depends_on=[combine_data], returns=['odd', 'even'])
+def split_data(p):
+  df_odd = table('combine_data').filter('id % 2 == 1')
+  df_even = table('combine_data').filter('id % 2 == 0')
+
+  return [ df_odd, df_even ]
+
+# executes pipeline using concurrent threads, one per each step, following the dependency DAG
+# pipeline is a normal python callable object, as if it was a function, it returns a list of all steps
+pipeline_results = ppn(max_concurrent_steps=10)
+
+print('pipeline results:')
+print(pipeline_results)
+
+#show some final values
+print('even numbers:')
+print(table('even').limit(10).collect())
+print('odd numbers:')
+print(table('odd').limit(10).collect())
+
+>> Waiting for all tasks to finish...
+>>   starting: Node(raw_data_single_source: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   starting: Node(raw_data_single_source_with_custom_name: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   starting: Node(raw_data_multi_source: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   finished: Node(raw_data_single_source: {'state': 'SUCCESS', 'result': [DataFrame[id: bigint]], 'exception': None, 'completed': True} ) (still running: 2)
+>>   finished: Node(raw_data_single_source_with_custom_name: {'state': 'SUCCESS', 'result': [DataFrame[id: bigint]], 'exception': None, 'completed': True} ) (still running: 1)
+>>   starting: Node(combine_data: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   finished: Node(raw_data_multi_source: {'state': 'SUCCESS', 'result': [DataFrame[id: bigint], DataFrame[id: bigint]], 'exception': None, 'completed': True} ) (still running: 1)
+>>   starting: Node(split_data: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   finished: Node(combine_data: {'state': 'SUCCESS', 'result': [DataFrame[id: bigint]], 'exception': None, 'completed': True} ) (still running: 1)
+>>   finished: Node(split_data: {'state': 'SUCCESS', 'result': [DataFrame[id: bigint], DataFrame[id: bigint]], 'exception': None, 'completed': True} ) (still running: 0)
+>> All tasks finished, shutting down
+>> pipeline results:
+>> [raw_data_single_source, raw_data_single_source_with_custom_name, raw_data_multi_source, combine_data, split_data]
+>> even numbers:
+>> [Row(id=2), Row(id=4), Row(id=6), Row(id=8), Row(id=100), Row(id=102), Row(id=104), Row(id=106), Row(id=108), Row(id=1000)]
+>> odd numbers:
+>> [Row(id=1), Row(id=3), Row(id=5), Row(id=7), Row(id=9), Row(id=101), Row(id=103), Row(id=105), Row(id=107), Row(id=109)]
+```
+
+pipeline steps are rerunable as any ordinary function:
+```python
+# to rerun given step, just execute it as if it was a pure function
+# return is alaways a list of dataframs that given @ppn.step returns
+# note: the spark view 'raw_data_single_source' will be updated when this function finishes (as per defintion in @ppn.step above)
+raw_data_single_source()
 ```

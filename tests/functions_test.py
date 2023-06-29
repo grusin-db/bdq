@@ -1,5 +1,6 @@
 from datetime import datetime
 from bdq.functions import surrogate_key_hash, surrogate_key_string
+from bdq import spark
 
 schema = "id1:long,id2:long,name:string,likes:int"
 

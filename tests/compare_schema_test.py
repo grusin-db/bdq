@@ -1,4 +1,5 @@
 import bdq
+from bdq import spark
 from datetime import datetime
 import pyspark.sql.functions as F
 
@@ -16,9 +17,27 @@ df2 = spark.createDataFrame([
 [ 2, 2, "Timmy",    datetime(2018, 1, 1), datetime(2018, 2, 1, 12, 34, 56), 36.7, 8754857845, True]
 ], schema)
 
-schema_diff = bdq.compare_schemas(df1.schema, df2.schema)
-assert not schema_diff['added'] and not schema_diff['removed'] and not schema_diff['changed']
+assert bdq.compare_schemas(df1.schema, df2.schema) == {
+  'added': set(), 
+  'removed': set(), 
+  'changed': {}, 
+  'not_changed': {
+    'likes', 'name', 'id1', 'last_login_ts', 'id2', 'credits', 'active', 'first_login_dt'
+    }
+  }
 
-df_diff = bdq.compare_dataframes(df1, df2, ['id1', 'id2'], True)
+df2_changed = df2 \
+  .drop('first_login_dt') \
+  .withColumn('new_data', F.lit(None).cast('date')) \
+  .withColumn('likes', F.col('likes').cast('int'))
 
-bdq.display_compare_dataframes_results(df_diff)
+assert bdq.compare_schemas(df2.schema, df2_changed.schema) == {
+  'added': {'first_login_dt'}, 
+  'removed': {'new_data'}, 
+  'changed': {
+    'likes': {'before': 'bigint', 'after': 'int'}
+  },
+  'not_changed': {
+    'name', 'id1', 'last_login_ts', 'id2', 'credits', 'active'
+  }
+}

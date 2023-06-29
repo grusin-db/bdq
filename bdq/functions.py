@@ -1,6 +1,11 @@
 from datetime import datetime
 import pyspark.sql.functions as F
 
+__all__ = [ 
+  'surrogate_key_string',
+  'surrogate_key_hash'
+]
+
 def surrogate_key_string(key_columns: list[str], rtrim=False, ltrim=False, upper=True, null_str_repr='@~<null>~@'):
   cols = []
 

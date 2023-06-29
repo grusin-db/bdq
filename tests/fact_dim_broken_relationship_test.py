@@ -1,6 +1,6 @@
 from bdq.functions import surrogate_key_hash, surrogate_key_string
 from bdq import fact_dim_broken_relationship
-
+from bdq import spark
 
 fact_df = spark \
   .createDataFrame([
