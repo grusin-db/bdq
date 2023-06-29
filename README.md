@@ -261,6 +261,7 @@ bdq.validate_primary_key_candidate_combinations(df, all_combinations, max_worker
 ```python
 import bdq
 import time
+import pytest
 
 #create graph
 graph = bdq.DAG()
@@ -269,6 +270,7 @@ graph = bdq.DAG()
 @graph.node()
 def a():
   time.sleep(2)
+  return 5
 
 @graph.node()
 def b():
@@ -279,48 +281,71 @@ def b():
 @graph.node(depends_on=[b])
 def c():
   time.sleep(5)
+  return 8
 
 #any amount of dependencies is allowed
 @graph.node(depends_on=[b, c, a])
 def d():
   time.sleep(7)
-  return "g man"
+  #beep as many times as absolute difference between 'c' and 'a'
+  return "g man say: " + b.result * abs(c.result - a.result)
 
 @graph.node(depends_on=[a])
 def e():
   time.sleep(3)
-  raise ValueError("omg, crash!")
+  #you can refer to parent nodes, to get information about their results
+  raise ValueError(f"omg, crash! {a.result}")
 
 @graph.node(depends_on=[e])
 def f():
   print("this will never execute")
+  return "this will never execute"
+
+@graph.node(depends_on=[a])
+def g():
+  time.sleep(3)
+  #we do not want to execute children nodes anymore
+  #return graph.BREAK this will cause that all children/successors in graph will be skipped without errror
+  return graph.BREAK
+
+@graph.node(depends_on=[g])
+def i():
+  print("this will never execute too")
+  return "this will never execute too"
 
 #execute DAG
 graph.execute(max_workers=10)
 
 #iterate over results
-for node, state in graph.nodes.items():
-  print(f"{node}: {state.result=}, {state.completed.is_set()=}, {state.exception=}")
-
->> Waiting for all tasks to finish...
->>   starting: <function a at 0x7f9a248c1ca0>
->>   starting: <function b at 0x7f9a248c1a60>
->>   starting: <function e at 0x7f9a248c18b0>
->>   finished: <function a at 0x7f9a248c1ca0>, result: None (still running: 2)
->>   starting: <function c at 0x7f9a248c19d0>
->>   finished: <function b at 0x7f9a248c1a60>, result: beeep (still running: 2)
->>   error: <function e at 0x7f9a248c18b0>: omg, crash! (still running: 1)
->>   starting: <function d at 0x7f9a248c1940>
->>   finished: <function c at 0x7f9a248c19d0>, result: None (still running: 1)
->>   finished: <function d at 0x7f9a248c1940>, result: d man (still running: 0)
->> All tasks finished, shutting down
->> <function a at 0x7f9a248c1ca0>: state.result=None, state.completed.is_set()=True, state.exception=None
->> <function b at 0x7f9a248c1a60>: state.result='beeep', state.completed.is_set()=True, state.exception=None
->> <function c at 0x7f9a248c19d0>: state.result=None, state.completed.is_set()=True, state.exception=None
->> <function d at 0x7f9a248c1940>: state.result='g man', state.completed.is_set()=True, state.exception=None
->> <function e at 0x7f9a248c18b0>: state.result=None, state.completed.is_set()=True, state.exception=ValueError('omg, crash!')
->> <function f at 0x7f9a248c1820>: state.result=None, state.completed.is_set()=False, state.exception=None
+print("Iterate over results...")
+for node in graph.nodes:
+  print(node)
 ```
+>> Waiting for all tasks to finish...
+>>   starting: Node(<function a at 0x7f50f4b9ee50>: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   starting: Node(<function b at 0x7f50f4b53040>: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   starting: Node(<function e at 0x7f50f4b53b80>: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   starting: Node(<function g at 0x7f50f4b535e0>: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   finished: Node(<function a at 0x7f50f4b9ee50>: {'state': 'SUCCESS', 'result': 5, 'exception': None, 'completed': True} ) (still running: 3)
+>>   starting: Node(<function c at 0x7f50f4b534c0>: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   finished: Node(<function b at 0x7f50f4b53040>: {'state': 'SUCCESS', 'result': 'beeep', 'exception': None, 'completed': True} ) (still running: 3)
+>>   error: Node(<function e at 0x7f50f4b53b80>: {'state': 'ERROR', 'result': None, 'exception': ValueError('omg, crash! 5'), 'completed': True} ): omg, crash! 5 (still running: 2)
+>>   finished: Node(<function g at 0x7f50f4b535e0>: {'state': 'SKIPPED', 'result': <threading.Event object at 0x7f50ec16c9d0>, 'exception': None, 'completed': True} ) (still running: 1)
+>>   starting: Node(<function d at 0x7f50f4b53a60>: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   finished: Node(<function c at 0x7f50f4b534c0>: {'state': 'SUCCESS', 'result': 8, 'exception': None, 'completed': True} ) (still running: 1)
+>>   finished: Node(<function d at 0x7f50f4b53a60>: {'state': 'SUCCESS', 'result': 'g man say: beeepbeeepbeeep', 'exception': None, 'completed': True} ) (still running: 0)
+>> All tasks finished, shutting down
+>>
+>> Iterate over results...
+>> Node(<function a at 0x7f50f4b9ee50>: {'state': 'SUCCESS', 'result': 5, 'exception': None, 'completed': True} )
+>> Node(<function b at 0x7f50f4b53040>: {'state': 'SUCCESS', 'result': 'beeep', 'exception': None, 'completed': True} )
+>> Node(<function c at 0x7f50f4b534c0>: {'state': 'SUCCESS', 'result': 8, 'exception': None, 'completed': True} )
+>> Node(<function d at 0x7f50f4b53a60>: {'state': 'SUCCESS', 'result': 'g man say: beeepbeeepbeeep', 'exception': None, 'completed': True} )
+>> Node(<function e at 0x7f50f4b53b80>: {'state': 'ERROR', 'result': None, 'exception': ValueError('omg, crash! 5'), 'completed': True} )
+>> Node(<function f at 0x7f50f4b530d0>: {'state': 'SKIPPED', 'result': None, 'exception': None, 'completed': False} )
+>> Node(<function g at 0x7f50f4b535e0>: {'state': 'SKIPPED', 'result': <threading.Event object at 0x7f50ec16c9d0>, 'exception': None, 'completed': True} )
+>> Node(<function i at 0x7f50f4b53280>: {'state': 'SKIPPED', 'result': None, 'exception': None, 'completed': False} )
+
 
 ## Execute pipeline of multiple steps
 using DAG component to handle parallel execution
