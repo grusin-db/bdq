@@ -347,12 +347,13 @@ for node in graph.nodes:
 >> Node(<function i at 0x7f50f4b53280>: {'state': 'SKIPPED', 'result': None, 'exception': None, 'completed': False} )
 ```
 
-## Execute pipeline of multiple steps
+## Execute spark pipeline of multiple steps
 using DAG component to handle parallel execution
 ```python
 import bdq
+from bdq import spark, table
 
-ppn = bdq.Pipeline(spark, "retail")
+ppn = bdq.SparkPipeline(spark, "retail")
 
 # returns dataframe, and creates spark view 'raw_data_single_source'
 @ppn.step()
@@ -391,8 +392,12 @@ def split_data(p):
 
   return [ df_odd, df_even ]
 
-#execute pipeline, returns map of all steps with their results (dataframes they returned), or exceptions if failed
-ppn()
+# executes pipeline using concurrent threads, one per each step, following the dependency DAG
+# pipeline is a normal python callable object, as if it was a function, it returns a list of all steps
+pipeline_results = ppn(max_concurrent_steps=10)
+
+print('pipeline results:')
+print(pipeline_results)
 
 #show some final values
 print('even numbers:')
@@ -401,19 +406,29 @@ print('odd numbers:')
 print(table('odd').limit(10).collect())
 
 >> Waiting for all tasks to finish...
->>  starting: raw_data_single_source() -> ['raw_data_single_source']
->>  starting: raw_data_single_source_with_custom_name() -> ['raw_nice_name']
->>  starting: raw_data_multi_source() -> ['raw_data1', 'raw_data2']
->>  finished: raw_data_single_source() -> ['raw_data_single_source'] (still running: 2)
->>  finished: raw_data_single_source_with_custom_name() -> ['raw_nice_name'] (still running: 1)
->>  starting: combine_data() -> ['combine_data']
->>  finished: raw_data_multi_source() -> ['raw_data1', 'raw_data2'] (still running: 1)
->>  starting: split_data() -> ['odds', 'even']
->>  finished: combine_data() -> ['combine_data'] (still running: 1)
->>  finished: split_data() -> ['odds', 'even'] (still running: 0)
->>All tasks finished, shutting down
->>even numbers:
->>[Row(id=2), Row(id=4), Row(id=6), Row(id=8), Row(id=100), Row(id=102), Row(id=104), Row(id=106), Row(id=108), Row(id=1000)]
->>odd numbers:
->>[Row(id=1), Row(id=3), Row(id=5), Row(id=7), Row(id=9), Row(id=101), Row(id=103), Row(id=105), Row(id=107), Row(id=109)]
+>>   starting: Node(raw_data_single_source: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   starting: Node(raw_data_single_source_with_custom_name: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   starting: Node(raw_data_multi_source: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   finished: Node(raw_data_single_source: {'state': 'SUCCESS', 'result': [DataFrame[id: bigint]], 'exception': None, 'completed': True} ) (still running: 2)
+>>   finished: Node(raw_data_single_source_with_custom_name: {'state': 'SUCCESS', 'result': [DataFrame[id: bigint]], 'exception': None, 'completed': True} ) (still running: 1)
+>>   starting: Node(combine_data: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   finished: Node(raw_data_multi_source: {'state': 'SUCCESS', 'result': [DataFrame[id: bigint], DataFrame[id: bigint]], 'exception': None, 'completed': True} ) (still running: 1)
+>>   starting: Node(split_data: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
+>>   finished: Node(combine_data: {'state': 'SUCCESS', 'result': [DataFrame[id: bigint]], 'exception': None, 'completed': True} ) (still running: 1)
+>>   finished: Node(split_data: {'state': 'SUCCESS', 'result': [DataFrame[id: bigint], DataFrame[id: bigint]], 'exception': None, 'completed': True} ) (still running: 0)
+>> All tasks finished, shutting down
+>> pipeline results:
+>> [raw_data_single_source, raw_data_single_source_with_custom_name, raw_data_multi_source, combine_data, split_data]
+>> even numbers:
+>> [Row(id=2), Row(id=4), Row(id=6), Row(id=8), Row(id=100), Row(id=102), Row(id=104), Row(id=106), Row(id=108), Row(id=1000)]
+>> odd numbers:
+>> [Row(id=1), Row(id=3), Row(id=5), Row(id=7), Row(id=9), Row(id=101), Row(id=103), Row(id=105), Row(id=107), Row(id=109)]
+```
+
+pipeline steps are rerunable as any ordinary function:
+```python
+# to rerun given step, just execute it as if it was a pure function
+# return is alaways a list of dataframs that given @ppn.step returns
+# note: the spark view 'raw_data_single_source' will be updated when this function finishes (as per defintion in @ppn.step above)
+raw_data_single_source()
 ```
