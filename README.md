@@ -320,7 +320,7 @@ graph.execute(max_workers=10)
 print("Iterate over results...")
 for node in graph.nodes:
   print(node)
-```
+
 >> Waiting for all tasks to finish...
 >>   starting: Node(<function a at 0x7f50f4b9ee50>: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
 >>   starting: Node(<function b at 0x7f50f4b53040>: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
@@ -345,7 +345,7 @@ for node in graph.nodes:
 >> Node(<function f at 0x7f50f4b530d0>: {'state': 'SKIPPED', 'result': None, 'exception': None, 'completed': False} )
 >> Node(<function g at 0x7f50f4b535e0>: {'state': 'SKIPPED', 'result': <threading.Event object at 0x7f50ec16c9d0>, 'exception': None, 'completed': True} )
 >> Node(<function i at 0x7f50f4b53280>: {'state': 'SKIPPED', 'result': None, 'exception': None, 'completed': False} )
-
+```
 
 ## Execute pipeline of multiple steps
 using DAG component to handle parallel execution
