@@ -1,0 +1,25 @@
+[project]
+name = "bdq"
+version = "0.0.1"
+authors = [
+  { name="Grzegorz Rusin", email="grzegorz.rusin@databricks.com" },
+]
+description = "Big Data Quality, a set of tools/function that help you every day assert quality of datasets you have processed or ingested"
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/grusin-db/bdq"
+"Bug Tracker" = "https://github.com/grusin-db/bdq/issues"
+
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["bdq"] 
