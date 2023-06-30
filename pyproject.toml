@@ -1,6 +1,6 @@
 [project]
 name = "bdq"
-version = "0.0.2"
+version = "0.0.3"
 authors = [
   { name="Grzegorz Rusin", email="grzegorz.rusin@databricks.com" },
 ]
@@ -22,4 +22,5 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["bdq"] 
+where = ["."]
+include = ["bdq"]
