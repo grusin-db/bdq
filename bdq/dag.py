@@ -29,7 +29,7 @@ class Node:
   @property
   def nodes(self):
     return self.dag.nodes
-
+  
   def __init__(self, function, dag:DAG=None):
     if function is None or not callable(function):
       raise ValueError("function must be a callable, not may not be None")
@@ -44,10 +44,32 @@ class Node:
     self.exception:Exception = None
     self.result = None
 
+    self._viz_update_state()
+
+  def _viz_update_state(self):
+    viz = self.dag._vizg
+    if not viz:
+      return
+    
+    s = self.state
+
+    if s == "ERROR":
+      style = "fill: #f77"
+    elif s == "SUCCESS":
+      style = "fill: #7f7"
+    elif s == "RUNNING":
+      style = "fill: #77f"
+    else:
+      style = "fill: #fff"
+
+    viz.setNode(self.name, style=style)
+    
   def reset(self):
     self.completed = threading.Event()
     self.exception = None
     self.result = None
+
+    self._viz_update_state()
 
   def __repr__(self):
     res = { 
@@ -64,9 +86,11 @@ class Node:
     try:
       self.result = self.function(*args, **kwds)
       self.completed.set()
+      self._viz_update_state()
     except Exception as e:
       self.exception = e
       self.completed.set()
+      self._viz_update_state()
       raise e
 
 class DAG:
@@ -75,6 +99,14 @@ class DAG:
   def __init__(self):
     self.nodes: dict[Node, Callable] = {}
     self.functions: dict[Callable, Node] = {}
+    self._vizg = self._vizg_try_init()
+
+  def _vizg_try_init(self):
+    try:
+      import ipydagred3
+      return ipydagred3.Graph()
+    except:
+      return None
 
   def node(self, *, depends_on:list[Node]=[]):
     depends_on = depends_on or []
@@ -122,6 +154,9 @@ class DAG:
     
     from_node.children.add(to_node)
     to_node.parents.add(from_node)
+
+    if self._vizg:
+      self._vizg.setEdge(from_node.name, to_node.name)
   
   def is_dependency_met(self, node:Node):
     for p in node.parents:
@@ -152,6 +187,14 @@ class DAG:
   def reset_nodes(self):
     for n in self.nodes:
       n.reset()
+
+  def visualize(self):
+    if not self._vizg:
+      print("pip package `ipydagred3` not installed, install and retry to see beautiful live visualization")
+      return None
+    
+    import ipydagred3
+    return ipydagred3.DagreD3Widget(graph=self._vizg)
   
   def execute(self, max_workers, verbose=True):
     lock = threading.RLock()
