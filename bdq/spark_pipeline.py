@@ -29,7 +29,7 @@ class Step():
   
   @property
   def __name__(self) -> str:
-    return f"(]{self.name})"
+    return f"{self.name}"
   
   def __init__(self, function, returns:list[str]=None, pipeline:SparkPipeline=None):
     if function is None or not callable(function):
@@ -86,6 +86,9 @@ class SparkPipeline:
       return s
 
     return _wrapped
+  
+  def visualize(self):
+    return self._dag.visualize()
   
   def is_success(self):
     return self._dag.is_success()
