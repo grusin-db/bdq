@@ -313,6 +313,9 @@ def i():
   print("this will never execute too")
   return "this will never execute too"
 
+# if you have ipydagred3 installed, you can see in real time state changes of each of the nodes
+display(graph.visualize())
+
 #execute DAG
 graph.execute(max_workers=10)
 
@@ -391,6 +394,9 @@ def split_data(p):
   df_even = table('combine_data').filter('id % 2 == 0')
 
   return [ df_odd, df_even ]
+
+# if you have ipydagred3 installed, you can see in real time state changes of each of the steps
+display(ppn.visualize())
 
 # executes pipeline using concurrent threads, one per each step, following the dependency DAG
 # pipeline is a normal python callable object, as if it was a function, it returns a list of all steps
