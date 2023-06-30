@@ -233,6 +233,7 @@ class DAG:
         running_nodes = running_nodes + 1
 
         node.future = executor.submit(node)
+        node._viz_update_state()
         
         if verbose:
           print(f"  starting: {node}")
