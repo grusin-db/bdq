@@ -438,3 +438,36 @@ pipeline steps are rerunable as any ordinary function:
 # note: the spark view 'raw_data_single_source' will be updated when this function finishes (as per defintion in @ppn.step above)
 raw_data_single_source()
 ```
+
+## Spark UI Stage descriptions
+When running code using pyspark, spark ui gets very crowded. `SparkUILogger` context manager and decorator assings human readable names to spark stages.
+
+```python
+from bdq
+
+# usage of decorators
+# spark ui stages will have description of 'xyz'
+@SparkUILogger.tag(desc='xyz')
+def some_function2(number):
+
+  return spark.range(number).count()
+
+# spark ui stages will have description of 'alpha_function2' (automatically derived from function name)
+@SparkUILogger.tag
+def alpha_function2(number):
+  # 1st and 2nd some_function2() calls should be visible in spark ui as 'xyz'
+  # the 3rd part of result should be visible as 'alpha_function2
+  return some_function2(number*2) + some_function2(number*3) + spark.range(number/10).count()
+
+# usage of context managers
+# will be visible in spark ui as 'first-count'
+with SparkUILogger('first-count'):
+  spark.range(10).count()
+
+# will be visible in spark ui as '2nd-count'
+with SparkUILogger('2nd-count'):
+  spark.range(20).count()
+
+some_function2(1000)
+alpha_function2(2000)
+```

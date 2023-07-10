@@ -16,7 +16,7 @@ class SparkUILogger:
       self.sc = spark.sparkContext
 
   def __enter__(self):
-    print(f">>> {self.desc}: {self.stack}")
+    #print(f">>> {self.desc}: {self.stack}")
     self.sc.setJobDescription(self.desc)
     self.stack.append(self.desc)
 
@@ -24,7 +24,7 @@ class SparkUILogger:
     assert self.stack.pop() == self.desc
     desc = self.stack[-1] if self.stack else None
     self.sc.setJobDescription(desc)
-    print(f"<<< {self.desc} -> {desc}")
+    #print(f"<<< {self.desc} -> {desc}")
 
   @staticmethod
   def tag(function=None, desc=None):
