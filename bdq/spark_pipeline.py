@@ -80,7 +80,7 @@ class SparkPipeline:
     self._spark_thread_pinning_wrapper = self._get_spark_thread_pinning_wrapper(self._spark)
     self._dag = bdq.DAG()
 
-  def step(self, *, returns:list[str]=None, depends_on:list[Step]=None) -> Step:
+  def step(self, *, returns:list[str]=None, depends_on:list[Step]=None, verbose=False) -> Step:
     depends_on = depends_on or []
     
     def _wrapped(func):
@@ -88,8 +88,15 @@ class SparkPipeline:
       s = Step(func, returns=returns, pipeline=self)
       deps = [n._node for n in depends_on]
       self._dag.node(depends_on=deps)(s)
+
+      if self._spark_thread_pinning_wrapper:
+        s = bdq.SparkUILogger.tag(s, desc=s.name, verbose=verbose)
       return s
 
+    #no thread pinning, no point of making spark ui loggers 
+    if not self._spark_thread_pinning_wrapper:
+      return _wrapped
+    
     return self._spark_thread_pinning_wrapper(_wrapped)
   
   def visualize(self):
@@ -127,10 +134,7 @@ class SparkPipeline:
         from pyspark import inheritable_thread_target
         return inheritable_thread_target
     except:
-      def nop(f):
-        return f
-      
-      return nop
+      return None
         
   @classmethod
   def _is_spark_thread_pinning_supported(cls, spark: SparkSession=None) -> bool:
