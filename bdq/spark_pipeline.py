@@ -50,7 +50,14 @@ class Step():
     return f"{self.name}"
 
   def __call__(self):
-    ret = self.function(self.pipeline) or []
+    f = self.function
+
+    if self.pipeline._spark_thread_pinning_wrapper:
+      #add stage logger, and wrap it in spark thread pinner code
+      f = bdq.SparkUILogger.tag(f, desc=f"{self.pipeline.name}.{self.name}")
+      f = self.pipeline._spark_thread_pinning_wrapper(f)
+
+    ret = f(self.pipeline) or []
     if isinstance(ret, DataFrame):
       ret = [ ret ]
 
@@ -89,15 +96,9 @@ class SparkPipeline:
       deps = [n._node for n in depends_on]
       self._dag.node(depends_on=deps)(s)
 
-      if self._spark_thread_pinning_wrapper:
-        s = bdq.SparkUILogger.tag(s, desc=s.name, verbose=verbose)
       return s
 
-    #no thread pinning, no point of making spark ui loggers 
-    if not self._spark_thread_pinning_wrapper:
-      return _wrapped
-    
-    return self._spark_thread_pinning_wrapper(_wrapped)
+    return _wrapped
   
   def visualize(self):
     return self._dag.visualize()
