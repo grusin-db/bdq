@@ -35,7 +35,7 @@ class Step():
   def __name__(self) -> str:
     return f"{self.name}"
   
-  def __init__(self, function, returns:list[str]=None, pipeline:SparkPipeline=None):
+  def __init__(self, function, returns:list[str]=None, pipeline:SparkPipeline=None, materialize:bool=False):
     if function is None or not callable(function):
       raise ValueError("function must be a callable, not may not be None")
     
@@ -43,6 +43,7 @@ class Step():
     self.function = function
     self.returns = returns or [function.__name__]
     self.pipeline = pipeline
+    self.materialize = materialize
 
     # TODO: handle logging
     if isinstance(self.returns, list):
@@ -76,7 +77,10 @@ class Step():
         raise ValueError(f"Step {self.name}(...) did not returnd a dataframe at index={idx} of name={self.returns[idx]}")
 
     for df, name in zip(ret, self.returns):
-      df.createOrReplaceTempView(name)
+      if self.materialize:
+        df.write.mode('overwrite').option('mergeSchema', True).saveAsTable(name)
+      else:
+        df.createOrReplaceTempView(name)
 
     return ret
     
@@ -91,12 +95,15 @@ class SparkPipeline:
     self._spark_thread_pinning_wrapper = self._get_spark_thread_pinning_wrapper(self._spark)
     self._dag = bdq.DAG()
 
-  def step(self, *, returns:list[str]=None, depends_on:list[Step]=None, verbose=False) -> Step:
+  def materialized_step(self, *, returns:list[str]=None, depends_on:list[Step]=None, verbose=False):
+    return self.step(returns=returns, depends_on=depends_on, verbose=verbose, materialize=True)
+
+  def step(self, *, returns:list[str]=None, depends_on:list[Step]=None, verbose=False, materialize=False) -> Step:
     depends_on = depends_on or []
     
     def _wrapped(func):
       # TODO: log creation of steps
-      s = Step(func, returns=returns, pipeline=self)
+      s = Step(func, returns=returns, pipeline=self, materialize=materialize)
       deps = [n._node for n in depends_on]
       self._dag.node(depends_on=deps)(s)
 
