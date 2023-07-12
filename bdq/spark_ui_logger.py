@@ -1,10 +1,9 @@
 import functools
+import threading
 from pyspark.sql import SparkSession
 from pyspark import SparkContext
 
-class SparkUILogger:
-  _stack:list[str] = []
-  
+class SparkUILogger:  
   def __init__(self, desc, spark:SparkSession=None, verbose=False):  
     self._spark = spark or SparkSession.getActiveSession()
     
@@ -14,6 +13,7 @@ class SparkUILogger:
     self._sc = self._spark.sparkContext
     self._desc = desc
     self._verbose = verbose
+    self._stack = threading.local()._SparkUILogger_stack = []
    
   def set_job_description(self, desc):
     self._sc.setLocalProperty(
@@ -29,7 +29,7 @@ class SparkUILogger:
     self._stack.append(self._desc)
 
   def __exit__(self, exc_type, exc_value, traceback):
-    assert self._stack.pop() == self._desc
+    assert self._stack.pop() == self._desc, "SparkUILogger's stack is corrupted"
     desc = self._stack[-1] if self._stack else None
     self.set_job_description(desc)
     if self._verbose:

@@ -1,5 +1,6 @@
 import threading
 import concurrent.futures as CF
+import traceback
 from collections.abc import Iterable, Callable
 from typing import Any
 
@@ -29,6 +30,11 @@ class Node:
   @property
   def nodes(self):
     return self.dag.nodes
+  
+  @property
+  def traceback(self):
+    if self.exception:
+      return "".join(traceback.format_tb(self.exception.__traceback__))
   
   def __init__(self, function, dag:DAG=None):
     if function is None or not callable(function):

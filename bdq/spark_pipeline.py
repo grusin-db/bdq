@@ -28,6 +28,10 @@ class Step():
     return self._node.exception
   
   @property
+  def traceback(self):
+    return self._node.traceback
+  
+  @property
   def __name__(self) -> str:
     return f"{self.name}"
   
