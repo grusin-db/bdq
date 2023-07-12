@@ -14,7 +14,7 @@ class SparkUILogger:
     self._sc = self._spark.sparkContext
     self._desc = desc
     self._verbose = verbose
-
+   
   def set_job_description(self, desc):
     self._sc.setLocalProperty(
       "spark.job.description",
@@ -34,16 +34,6 @@ class SparkUILogger:
     self.set_job_description(desc)
     if self._verbose:
       print(f"<<< {self._desc} -> {desc}")
-
-  @staticmethod
-  def _is_spark_pinned_threads_supported(spark: SparkSession=None) -> bool:
-    try:
-      from py4j.clientserver import ClientServer
-      spark = spark or SparkSession.getActiveSession()
-      
-      return isinstance(spark.sparkContext._gateway, ClientServer)
-    except:
-      return False
 
   @staticmethod
   def tag(function=None, desc=None, verbose=False):

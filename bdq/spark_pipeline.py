@@ -71,8 +71,13 @@ class Step():
     
 class SparkPipeline:
   def __init__(self, spark:SparkSession, name:str):
-    self.spark = spark
     self.name = name
+    self._spark = spark or SparkSession.getActiveSession()
+    
+    if not self._spark:
+      raise ValueError("could not get active spark session")
+  
+    self._spark_thread_pinning_wrapper = self._get_spark_thread_pinning_wrapper(self._spark)
     self._dag = bdq.DAG()
 
   def step(self, *, returns:list[str]=None, depends_on:list[Step]=None) -> Step:
@@ -85,7 +90,7 @@ class SparkPipeline:
       self._dag.node(depends_on=deps)(s)
       return s
 
-    return _wrapped
+    return self._spark_thread_pinning_wrapper(_wrapped)
   
   def visualize(self):
     return self._dag.visualize()
@@ -114,4 +119,26 @@ class SparkPipeline:
     error_steps = self.get_error_steps()
 
     raise ValueError(f"{len(error_steps)} step(s) have failed: {error_steps}")
+  
+  @classmethod
+  def _get_spark_thread_pinning_wrapper(cls, spark: SparkSession=None):
+    try:
+      if cls._is_spark_thread_pinning_supported(spark):
+        from pyspark import inheritable_thread_target
+        return inheritable_thread_target
+    except:
+      def nop(f):
+        return f
+      
+      return nop
+        
+  @classmethod
+  def _is_spark_thread_pinning_supported(cls, spark: SparkSession=None) -> bool:
+    try:
+      from py4j.clientserver import ClientServer
+      spark = spark or SparkSession.getActiveSession()
+      
+      return isinstance(spark.sparkContext._gateway, ClientServer)
+    except:
+      return False
       

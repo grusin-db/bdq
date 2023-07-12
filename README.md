@@ -443,7 +443,7 @@ raw_data_single_source()
 When running code using pyspark, spark ui gets very crowded. `SparkUILogger` context manager and decorator assings human readable names to spark stages.
 
 ```python
-from bdq
+from bdq import SparkUILogger
 
 # usage of decorators
 # spark ui stages will have description of 'xyz'

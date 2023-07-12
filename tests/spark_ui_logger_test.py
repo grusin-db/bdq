@@ -19,8 +19,8 @@ def test_with_logic():
   alpha_function(2000)
 
 def test_decorator_logic():
-  # spark ui stages/sql actions will be visible as 'xyz'
-  @SparkUILogger.tag(desc='xyz')
+  # spark ui stages/sql actions will be visible as 'xyz', log to console too
+  @SparkUILogger.tag(desc='xyz', verbose=True)
   def some_function2(number):
 
     return spark.range(number).count()
@@ -36,8 +36,8 @@ def test_decorator_logic():
   with SparkUILogger('first-count'):
     spark.range(10).count()
 
-  # will be isible in spark ui as '2nd-count'
-  with SparkUILogger('2nd-count'):
+  # will be isible in spark ui as '2nd-count', log to console too
+  with SparkUILogger('2nd-count', verbose=True):
     spark.range(20).count()
 
   some_function2(1000)
