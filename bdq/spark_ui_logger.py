@@ -16,6 +16,7 @@ class SparkUILogger:
     self._stack = threading.local()._SparkUILogger_stack = []
    
   def set_job_description(self, desc):
+    self._sc.setJobDescription(desc)
     self._sc.setLocalProperty(
       "spark.job.description",
       desc
@@ -45,6 +46,7 @@ class SparkUILogger:
         with SparkUILogger(d, verbose=verbose):  
           return f(*args, **kwargs)
       return wrapper
+    
     if function:
       return actual_decorator(function)
     return actual_decorator

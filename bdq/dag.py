@@ -261,3 +261,6 @@ class DAG:
       print("All tasks finished, shutting down")
     
     executor.shutdown()
+
+  def __call__(self, max_workers, verbose=True):
+    return self.execute(max_workers=max_workers, verbose=verbose)
