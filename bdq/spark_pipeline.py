@@ -1,8 +1,9 @@
-from typing import Any
+from typing import Any, Callable
 import bdq
 import functools
 import inspect
 from pyspark.sql import DataFrame, SparkSession
+from bdq import spark, table
 
 __all__ = [
   'SparkPipeline'
@@ -38,7 +39,7 @@ class Step():
   def __name__(self) -> str:
     return f"{self.name}"
   
-  def __init__(self, function, returns:list[str]=None, pipeline:SparkPipeline=None, post_callback=None, post_callback_kwargs=None):
+  def __init__(self, function, returns:list[str]=None, pipeline:SparkPipeline=None):
     if function is None or not callable(function):
       raise ValueError("function must be a callable, not may not be None")
     
@@ -46,12 +47,9 @@ class Step():
     self.function = function
     if isinstance(returns, str):
       returns = [ returns ]
-    self.returns = returns or [function.__name__]
+    self.returns = returns if returns is not None else [function.__name__]
     self.pipeline = pipeline
-    self.post_callback = post_callback
-    self.post_callback_kwargs = post_callback_kwargs or {}
 
-    # TODO: handle logging
     if isinstance(self.returns, list):
       for r in self.returns:
         if not isinstance(r, str):
@@ -61,35 +59,22 @@ class Step():
     return f"{self.name}"
   
   def __call__(self):
-    def _execute_step(f):
-      ret = f(self.pipeline) or []
-      if isinstance(ret, DataFrame):
-        ret = [ ret ]
+    ret = self.function(self.pipeline)
+    if not isinstance(ret, (list, tuple)):
+      ret = [ ret ]
 
-      if isinstance(ret, str) or not isinstance(ret, list):
-        raise ValueError(f"Step {self.name}(...) must return list of dataframe(s) matching returns specification")
+    if len(ret) != len(self.returns):
+      raise ValueError(f"Step {self.name}(...) returned {len(ret)} objects(s), but {len(self.returns)} were expected")
+    
+    return ret
+    
+    #FIXME: how to make it working?!
+    # if self.pipeline._spark_thread_pinning_wrapper:
+    #   #add stage logger, and wrap it in spark thread pinner code
+    #   f = self.pipeline._spark_thread_pinning_wrapper(f)
+    #   f = bdq.SparkUILogger.tag(f, desc=f"{self.pipeline.name}.{self.name}", verbose=True)
+    #   print("spark logger ui wrapped", f)
 
-      if len(ret) != len(self.returns):
-        raise ValueError(f"Step {self.name}(...) returned {len(ret)} dataframe(s), but {len(self.returns)} were expected")
-
-      for idx, r in enumerate(ret):
-        if not isinstance(r, DataFrame):
-          raise ValueError(f"Step {self.name}(...) did not returnd a dataframe at index={idx} of name={self.returns[idx]}")
-
-      if self.post_callback:
-        return self.post_callback(step=self, data=ret, **self.post_callback_kwargs)
-     
-      return ret
-
-    f = self.function
-
-    if self.pipeline._spark_thread_pinning_wrapper:
-      #add stage logger, and wrap it in spark thread pinner code
-      f = self.pipeline._spark_thread_pinning_wrapper(f)
-      f = bdq.SparkUILogger.tag(f, desc=f"{self.pipeline.name}.{self.name}", verbose=True)
-      print("spark logger ui wrapped", f)
-
-    return _execute_step(f)
     
 class SparkPipeline:
   def __init__(self, spark:SparkSession, name:str):
@@ -102,19 +87,21 @@ class SparkPipeline:
     self._spark_thread_pinning_wrapper = self._get_spark_thread_pinning_wrapper(self._spark)
     self._dag = bdq.DAG()
 
-  def _default_post_step_callback(self, *, step:Step, ret:list[DataFrame]):
-    for df, name in zip(ret, step.returns):
+  def _default_post_step_callback(self, *, step:Step, data:list[DataFrame]):
+    new_data = []
+
+    for df, name in zip(data, step.returns):
       df.createOrReplaceTempView(name)
+      new_data.append(table(name))
 
-    return step.result
-
-  def step(self, *, returns:list[str]=None, depends_on:list[Step]=None, verbose=False, post_callback=None, post_callback_kwargs=None) -> Step:
+    return new_data
+    
+  def step_raw(self, *, returns:list[str]=None, depends_on:list[Step]=None) -> Step:
     depends_on = depends_on or []
-    post_callback = post_callback or self._default_post_step_callback
     
     def _wrapped(func):
       # TODO: log creation of steps
-      s = Step(func, returns=returns, pipeline=self, post_callback=post_callback, post_callback_kwargs=post_callback_kwargs)
+      s = Step(func, returns=returns, pipeline=self)
       deps = [n._node for n in depends_on]
       self._dag.node(depends_on=deps)(s)
 
@@ -172,34 +159,33 @@ class SparkPipeline:
     except:
       return False
       
-
-def register_custom_step(*args, **kwargs):
-  def _outer(post_callback):
-    @functools.wraps(post_callback)
-    def _inner(self, returns:list[str]=None, depends_on:list[Step]=None, verbose=False, **passed_kwargs):
-      # verify signature of the new handler, there must be better way of doing it, but here we are
-      sig = inspect.signature(_inner)
+# def register_custom_step(*args, **kwargs):
+#   def _outer(post_callback):
+#     @functools.wraps(post_callback)
+#     def _inner(self, returns:list[str]=None, depends_on:list[Step]=None, verbose=False, **passed_kwargs):
+#       # verify signature of the new handler, there must be better way of doing it, but here we are
+#       sig = inspect.signature(_inner)
       
-      if "step" not in sig.parameters or "data" not in sig.parameters:
-        raise ValueError(f"decorated function signature, must have parameters: `step` and `data`; instead got: {', '.join(list(sig.parameters))}")
+#       if "step" not in sig.parameters or "data" not in sig.parameters:
+#         raise ValueError(f"decorated function signature, must have parameters: `step` and `data`; instead got: {', '.join(list(sig.parameters))}")
 
-      expected_kwargs = set(sig.parameters).difference(['step', 'data'])
-      invalid_args = set(passed_kwargs).difference(set(expected_kwargs))
-      if invalid_args:
-        raise ValueError(f"expected: {', '.join(list(expected_kwargs))}; instead got: {', '.join(list(passed_kwargs))}")
+#       expected_kwargs = set(sig.parameters).difference(['step', 'data'])
+#       invalid_args = set(passed_kwargs).difference(set(expected_kwargs))
+#       if invalid_args:
+#         raise ValueError(f"expected: {', '.join(list(expected_kwargs))}; instead got: {', '.join(list(passed_kwargs))}")
       
-      return self.step(returns=returns, depends_on=depends_on, verbose=verbose, post_callback=post_callback, post_callback_kwargs=passed_kwargs)
+#       return self.step(returns=returns, depends_on=depends_on, verbose=verbose, post_callback=post_callback, post_callback_kwargs=passed_kwargs)
     
-    if getattr(bdq.SparkPipeline, post_callback.__name__, None):
-      raise ValueError(f"{post_callback.__name__} is already registered!")
+#     if getattr(bdq.SparkPipeline, post_callback.__name__, None):
+#       raise ValueError(f"{post_callback.__name__} is already registered!")
 
-    setattr(bdq.SparkPipeline, post_callback.__name__, _inner)
+#     setattr(bdq.SparkPipeline, post_callback.__name__, _inner)
 
-    return _inner
+#     return _inner
   
-  # called without ()
-  if len(args) == 1 and callable(args[0]) and len(kwargs) == 0:
-    return _outer(args[0])
+#   # called without ()
+#   if len(args) == 1 and callable(args[0]) and len(kwargs) == 0:
+#     return _outer(args[0])
   
-  # called with (...)
-  return _outer
+#   # called with (...)
+#   return _outer

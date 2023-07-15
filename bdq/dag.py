@@ -106,6 +106,7 @@ class DAG:
     self.nodes: dict[Node, Callable] = {}
     self.functions: dict[Callable, Node] = {}
     self._vizg = self._vizg_try_init()
+    self._running_nodes = 0
 
   def _vizg_try_init(self):
     try:
@@ -165,10 +166,10 @@ class DAG:
       self._vizg.setEdge(from_node.name, to_node.name)
   
   def is_dependency_met(self, node:Node):
-    for p in node.parents:
-      if not p.completed.is_set() or p.result == DAG.BREAK:
+    for p in node.parents: 
+      if not p.completed.is_set() or p.result == DAG.BREAK or p.exception:
         return False
-      
+    
     return True
   
   def is_success(self) -> bool:
@@ -196,7 +197,7 @@ class DAG:
 
   def visualize(self):
     if not self._vizg:
-      print("pip package `ipydagred3` not installed, install and retry to see beautiful live visualization")
+      print("pip package `ipydagred3` not installed, `%pip install ipydagred3` and rerun to see beautiful live visualization")
       return None
     
     import ipydagred3
@@ -204,7 +205,7 @@ class DAG:
   
   def execute(self, max_workers, verbose=True):
     lock = threading.RLock()
-    running_nodes = 0
+    self._running_nodes = 0
     all_nodes_finished_event = threading.Event()
     executor = CF.ThreadPoolExecutor(max_workers=max_workers)
 
@@ -213,48 +214,57 @@ class DAG:
     def _get_done_callback(node: Node):
       def _handle_done(fn: CF.Future):
         with lock:
-          if not node.exception:
-            for c in node.children:
-              if self.is_dependency_met(c):
-                _start(c)
-
-          nonlocal running_nodes
-          running_nodes = running_nodes - 1
+          self._running_nodes = self._running_nodes - 1
 
           if node.exception:
             if verbose:
-              print(f"  error: {node}: {node.exception} (still running: {running_nodes})")
+              print(f"  error: {node}: {node.exception} (running: {self._running_nodes})")
           else:
             if verbose:
-              print(f"  finished: {node} (still running: {running_nodes})")
+              print(f"  finished: {node} (running: {self._running_nodes})")
 
-          if running_nodes == 0:
+          if not node.exception:
+            started_nodes = _start_if_dependenyc_met(node.children)
+
+          if self._running_nodes == 0:
             all_nodes_finished_event.set()
+
+        _add_done_callback(started_nodes)
         
       return _handle_done
 
-    def _start(node: Node):
-      with lock:
-        nonlocal running_nodes
-        running_nodes = running_nodes + 1
-
-        node.future = executor.submit(node)
-        node._viz_update_state()
-        
-        if verbose:
-          print(f"  starting: {node}")
-        
+    def _add_done_callback(nodes: list[Node]):
+      # must be called outside of lock, otherwise it might execute callback imediately
+      # and will lead to deadlock
+      for node in nodes:
         node.future.add_done_callback(_get_done_callback(node))
+
+    def _start_if_dependenyc_met(nodes: list[Node]):
+      with lock:
+        started_nodes:list[Node] = []
+        for node in nodes:
+          if not self.is_dependency_met(node):
+            continue
+
+          self._running_nodes = self._running_nodes + 1
+
+          node.future = executor.submit(node)
+          node._viz_update_state()
+          
+          if verbose:
+            print(f"  starting: {node} (running: {self._running_nodes})")
+        
+          started_nodes.append(node)
+
+      return started_nodes
 
     if verbose:
       print("Waiting for all tasks to finish...")
     
-    if not self.nodes:
-      all_nodes_finished_event.set()
+    if self.nodes:
+      _add_done_callback(_start_if_dependenyc_met(self.nodes))
     else:
-      for n in self.nodes:
-        if self.is_dependency_met(n):
-          _start(n)
+      all_nodes_finished_event.set()
 
     all_nodes_finished_event.wait()
     if verbose:
