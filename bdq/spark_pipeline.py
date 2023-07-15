@@ -1,8 +1,11 @@
-from typing import Any, Callable
+from typing import Any, Callable, Union
 import bdq
 import functools
 import inspect
+import threading
 from pyspark.sql import DataFrame, SparkSession
+from pyspark.sql.streaming import StreamingQueryListener
+from pyspark.sql.streaming.listener import QueryProgressEvent, QueryStartedEvent, QueryTerminatedEvent
 from bdq import spark, table
 from copy import deepcopy
 
@@ -261,5 +264,58 @@ def step_spark_table(self, *, returns:list[str]=None, depends_on:list[Step]=None
     return Step(_logic_wrapper, returns=returns, pipeline=self, depends_on=depends_on)
   return _step_wrapper
 
-#@register_spark_pipeline_step_implementation
-#def step_spark_for_each_batch()
+@register_spark_pipeline_step_implementation
+def step_spark_for_each_batch(self, *, input_table:str, returns:list[str]=None, depends_on:list[Step]=None, 
+                              trigger_once:bool=False, trigger_availableNow:bool=False, trigger_interval:str=None):
+  
+  #TODO: resolve input table from depends_on if possible
+  #TODO: handle trigger types
+  #TODO: handle checkpoint locations
+  #TODO: handle reset?
+
+  def _step_wrapper(func):
+    @functools.wraps(func)
+    def _logic_wrapper(p):
+      nonlocal returns, depends_on
+
+      returns = validate_step_returns(func, returns)
+      depends_on = validate_step_depends_on(depends_on)
+
+      streaming_df = table(input_table)
+      _batch_finished_event = threading.Event()
+      _batch_finished_batch_limit = 1
+      
+      class MyListener(StreamingQueryListener):
+        def onQueryStarted(self, event:QueryStartedEvent):
+          #print("onQueryStarted", event)
+          pass
+
+        def onQueryProgress(self, event:QueryProgressEvent):
+          #print("onQueryProgress", event.progress.json)
+          
+          # mark first batch as finished
+          nonlocal _batch_finished_batch_limit
+          _batch_finished_batch_limit = _batch_finished_batch_limit - 1
+          if _batch_finished_batch_limit == 0:
+            _batch_finished_event.set()
+
+        def onQueryTerminated(self, event:QueryTerminatedEvent):
+          #print("onQueryTerminated", event)
+          # handle scenario where query finishes before hitting the desired countdown limit
+          _batch_finished_event.set()
+      
+      spark.streams.addListener(MyListener())
+
+      dw = streaming_df.writeStream \
+        .foreachBatch(func) \
+        .start()
+
+      # wait for event; desired amount of batches
+      _batch_finished_event.wait()
+
+      print(f"RETURNING: {returns=}")
+      return [table(n) for n in returns]
+
+    return Step(_logic_wrapper, returns=returns, pipeline=self, depends_on=depends_on)
+  
+  return _step_wrapper

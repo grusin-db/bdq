@@ -245,7 +245,7 @@ class DAG:
       with lock:
         started_nodes:list[Node] = []
         for node in nodes:
-          if not self.is_dependency_met(node):
+          if not self.is_dependency_met(node) or node.future is not None:
             continue
 
           self._running_nodes = self._running_nodes + 1
