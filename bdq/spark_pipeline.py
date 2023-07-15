@@ -9,6 +9,7 @@ from copy import deepcopy
 __all__ = [
   'SparkPipeline'
   ,'Step'
+  ,'register_spark_pipeline_step_implementation'
 ]
   
 class SparkPipeline:
@@ -144,11 +145,12 @@ def register_spark_pipeline_step_implementation(func):
   return func
 
 def validate_list_of_type(obj, obj_name, item_type, default_value=None):
+  #print(f"validate_list_of_type: {obj=}, {obj_name=}, {item_type=}, {default_value=}")
   if obj is None:
     obj = default_value
   
   if obj is None:
-    raise ValueError(f"{obj_name} is not defined")
+    raise ValueError(f"{obj_name} is not defined (debug; {default_value=})")
 
   if isinstance(obj, tuple):
     obj = list(obj)
@@ -194,7 +196,8 @@ def execute_decorated_function(func:Callable, pipeline:SparkPipeline, returns:li
   data = validate_list_of_type(
     obj=data, 
     obj_name=f"return value of function {func.__name__}", 
-    item_type=item_type
+    item_type=item_type,
+    default_value=[]
   )
 
   if len(data) != len(returns):
@@ -257,3 +260,6 @@ def step_spark_table(self, *, returns:list[str]=None, depends_on:list[Step]=None
     
     return Step(_logic_wrapper, returns=returns, pipeline=self, depends_on=depends_on)
   return _step_wrapper
+
+#@register_spark_pipeline_step_implementation
+#def step_spark_for_each_batch()
