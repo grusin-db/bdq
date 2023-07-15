@@ -225,6 +225,8 @@ class DAG:
 
           if not node.exception:
             started_nodes = _start_if_dependenyc_met(node.children)
+          else:
+            started_nodes = []
 
           if self._running_nodes == 0:
             all_nodes_finished_event.set()
