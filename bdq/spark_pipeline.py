@@ -4,7 +4,7 @@ import functools
 import inspect
 import threading
 from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql.streaming import StreamingQueryListener
+from pyspark.sql.streaming import StreamingQueryListener, DataStreamWriter
 from pyspark.sql.streaming.listener import QueryProgressEvent, QueryStartedEvent, QueryTerminatedEvent
 from bdq import spark, table
 from copy import deepcopy
@@ -54,7 +54,7 @@ class Step():
     self.name = func.__name__
     self.function = func
     self.returns = validate_step_returns(func, returns)
-    self.pipeline = pipeline        
+    self.pipeline = pipeline
     depends_on = validate_step_depends_on(depends_on)
 
     deps = [n._node for n in depends_on]
@@ -64,7 +64,7 @@ class Step():
     return f"{self.name}"
   
   def __call__(self):
-    return execute_decorated_function(self.function, self, self.returns, item_type=Any)
+    return execute_step_decorated_function(self.function, self, self.returns, item_type=Any)
     
     #FIXME: how to make it working?!
     # if self.pipeline._spark_thread_pinning_wrapper:
@@ -75,8 +75,20 @@ class Step():
 
     
 class SparkPipeline:
-  def __init__(self, spark:SparkSession, name:str):
+  @property
+  def spark_streaming_checkpoint_location(self):
+    return self.conf.get(
+      'spark.sql.streaming.checkpointLocation', 
+      self._spark.conf.get('spark.sql.streaming.checkpointLocation')
+    )
+  
+  @spark_streaming_checkpoint_location.setter
+  def spark_streaming_checkpoint_location(self, value):
+    self.conf['spark.sql.streaming.checkpointLocation'] = value
+
+  def __init__(self, name:str, spark:SparkSession=None):
     self.name = name
+    self.conf:dict[str,str] = {}
     self._spark = spark or SparkSession.getActiveSession()
 
     if not self._spark:
@@ -191,11 +203,11 @@ def validate_step_depends_on(depends_on):
     default_value=[]
   )
 
-def execute_decorated_function(func:Callable, pipeline:SparkPipeline, returns:list[str], item_type):
+def execute_step_decorated_function(func:Callable, step:Step, returns:list[str], item_type):
   returns = validate_step_returns(func, returns)  
   
   #TODO: do some inspect and parameter probing, to detect if pipeline has to be passed or not
-  data = func(pipeline)
+  data = func(step)
   data = validate_list_of_type(
     obj=data, 
     obj_name=f"return value of function {func.__name__}", 
@@ -208,31 +220,65 @@ def execute_decorated_function(func:Callable, pipeline:SparkPipeline, returns:li
 
   return data
 
+def validate_xor_values(**kwargs):
+  set_values = [k for k, v in kwargs.items() if v]
+  all_name_str = ", ".join(kwargs)
+  set_name_str = ", ".join(set_values) or 'None'
+
+  if len(set_values) != 1:
+    raise ValueError(f"Exactly one of {all_name_str} has to be defined, got: {set_name_str}")
+  
+  name = set_values[0]
+  return name, kwargs[name]
+
+def validate_spark_streaming_checkpoint_location(pipeline:SparkPipeline, name:Union[Callable, str]):
+  if not pipeline.spark_streaming_checkpoint_location:
+    raise ValueError("SparkPipeline's spark_streaming_checkpoint_location is not defined")
+  
+  if isinstance(name, Callable):
+    name = name.__name__
+
+  return f"{pipeline.spark_streaming_checkpoint_location}/{pipeline.name}/{name}"
+
+def apply_spark_streaming_trigger(dw:DataStreamWriter, trigger_once:bool=False, trigger_availableNow:bool=False, trigger_interval:str=None):
+  name, value = validate_xor_values(trigger_once=trigger_once, trigger_availableNow=trigger_availableNow, trigger_interval=trigger_interval)
+
+  print("TRIGGER:", name, value)
+
+  if name == 'trigger_once':
+    dw = dw.trigger(once=value)
+  elif name == 'trigger_availableNow':
+    dw = dw.trigger(availableNow=value)
+  elif name == 'trigger_interval':
+    dw = dw.trigger(processingTime=value)
+
+  return dw
+
 @register_spark_pipeline_step_implementation
-def step_python(self, *, returns:list[str]=None, depends_on:list[Step]=None) -> Step:    
+def step_python(pipeline:SparkPipeline, *, returns:list[str]=None, depends_on:list[Step]=None) -> Step:    
     def _step_wrapper(func):
-      return Step(func, returns=returns, pipeline=self, depends_on=depends_on)
+      return Step(func, returns=returns, pipeline=pipeline, depends_on=depends_on)
     return _step_wrapper
 
 @register_spark_pipeline_step_implementation
-def step_spark(self, *, returns:list[str]=None, depends_on:list[Step]=None) -> Step:
+def step_spark(pipeline:SparkPipeline, *, returns:list[str]=None, depends_on:list[Step]=None) -> Step:
   def _step_wrapper(func):
     
     @functools.wraps(func)
-    def _logic_wrapper(p):
-      return execute_decorated_function(func, self, returns, DataFrame)
+    def _logic_wrapper(step):
+      return execute_step_decorated_function(func, step, returns, DataFrame)
 
-    return Step(_logic_wrapper, returns=returns, pipeline=self, depends_on=depends_on)
+    return Step(_logic_wrapper, returns=returns, pipeline=pipeline, depends_on=depends_on)
   return _step_wrapper
 
 @register_spark_pipeline_step_implementation
-def step_spark_temp_view(self, *, returns:list[str]=None, depends_on:list[Step]=None) -> Step:
+def step_spark_temp_view(pipeline:SparkPipeline, *, returns:list[str]=None, depends_on:list[Step]=None) -> Step:
   def _step_wrapper(func):
     
     @functools.wraps(func)
-    def _logic_wrapper(p):
+    def _logic_wrapper(step):
       new_returns = validate_step_returns(func, returns)
-      data = execute_decorated_function(func, self, new_returns, DataFrame)
+      data = execute_step_decorated_function(func, step, new_returns, DataFrame)
 
       new_data = []
       for df, name in zip(data, new_returns):          
@@ -241,18 +287,18 @@ def step_spark_temp_view(self, *, returns:list[str]=None, depends_on:list[Step]=
 
       return new_data
 
-    return Step(_logic_wrapper, returns=returns, pipeline=self, depends_on=depends_on)
+    return Step(_logic_wrapper, returns=returns, pipeline=pipeline, depends_on=depends_on)
   return _step_wrapper
 
 @register_spark_pipeline_step_implementation
-def step_spark_table(self, *, returns:list[str]=None, depends_on:list[Step]=None, 
+def step_spark_table(pipeline:SparkPipeline, *, returns:list[str]=None, depends_on:list[Step]=None, 
                       mode:str="overwrite", format:str="delta", **options:dict[str, Any]) -> Step:
 
   def _step_wrapper(func):
     @functools.wraps(func)
-    def _logic_wrapper(p):
+    def _logic_wrapper(step):
       new_returns = validate_step_returns(func, returns)
-      data = execute_decorated_function(func, self, new_returns, DataFrame)
+      data = execute_step_decorated_function(func, step, new_returns, DataFrame)
 
       new_data = []
       for df, name in zip(data, new_returns):
@@ -261,61 +307,100 @@ def step_spark_table(self, *, returns:list[str]=None, depends_on:list[Step]=None
 
       return new_data
     
-    return Step(_logic_wrapper, returns=returns, pipeline=self, depends_on=depends_on)
+    return Step(_logic_wrapper, returns=returns, pipeline=pipeline, depends_on=depends_on)
   return _step_wrapper
 
 @register_spark_pipeline_step_implementation
-def step_spark_for_each_batch(self, *, input_table:str, returns:list[str]=None, depends_on:list[Step]=None, 
-                              trigger_once:bool=False, trigger_availableNow:bool=False, trigger_interval:str=None):
+def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str, returns:list[str]=None, depends_on:list[Step]=None, 
+                              trigger_once:bool=False, trigger_availableNow:bool=False, trigger_interval:str=None, 
+                              options:dict=None, batch_limit:int=-1, stop_on_batch_limit=True
+                              ):
   
+  options = options or {}
+
   #TODO: resolve input table from depends_on if possible
-  #TODO: handle trigger types
-  #TODO: handle checkpoint locations
   #TODO: handle reset?
 
+  validate_xor_values(trigger_once=trigger_once, trigger_availableNow=trigger_availableNow, trigger_interval=trigger_interval)
+
   def _step_wrapper(func):
+    checkpoint_location = validate_spark_streaming_checkpoint_location(pipeline, func)
+
     @functools.wraps(func)
-    def _logic_wrapper(p):
+    def _logic_wrapper(step:Step):
+      query_name = f"{step.pipeline.name}/{step.name}"
+      step.query_name = query_name
+      step.checkpoint_location = checkpoint_location
       nonlocal returns, depends_on
 
       returns = validate_step_returns(func, returns)
       depends_on = validate_step_depends_on(depends_on)
 
-      streaming_df = table(input_table)
+      streaming_df:DataFrame = table(input_table)
       _batch_finished_event = threading.Event()
-      _batch_finished_batch_limit = 1
+      _batch_finished_batch_limit = batch_limit
       
       class MyListener(StreamingQueryListener):
         def onQueryStarted(self, event:QueryStartedEvent):
-          #print("onQueryStarted", event)
-          pass
+          if event.name == query_name:
+            print(f"onQueryStarted {event.name=}, {event.runId}, {event.id}")
+            self._filter_runId = event.runId
+            
+        def onQueryProgress(self, event:QueryProgressEvent):          
+          if event.progress.runId != self._filter_runId:
+            return
 
-        def onQueryProgress(self, event:QueryProgressEvent):
-          #print("onQueryProgress", event.progress.json)
+          print(f"onQueryProgress: {event.progress.json}")
           
-          # mark first batch as finished
-          nonlocal _batch_finished_batch_limit
-          _batch_finished_batch_limit = _batch_finished_batch_limit - 1
-          if _batch_finished_batch_limit == 0:
-            _batch_finished_event.set()
+          if batch_limit > 0:
+            nonlocal _batch_finished_batch_limit
+            _batch_finished_batch_limit = _batch_finished_batch_limit - 1
+            if _batch_finished_batch_limit <= 0:
+              if stop_on_batch_limit:
+                sq.stop()
+              
+              # this will let step finish
+              _batch_finished_event.set()
+             
 
         def onQueryTerminated(self, event:QueryTerminatedEvent):
-          #print("onQueryTerminated", event)
+          if event.runId != self._filter_runId:
+            return
+                
+          print(f"onQueryTerminated {event.runId=}, {event.id=}")
+         
           # handle scenario where query finishes before hitting the desired countdown limit
           _batch_finished_event.set()
       
       spark.streams.addListener(MyListener())
 
       dw = streaming_df.writeStream \
+        .option('checkpointLocation', checkpoint_location) \
+        .options(**options) \
+        .queryName(query_name) \
         .foreachBatch(func) \
-        .start()
+        
+      dw = apply_spark_streaming_trigger(dw, trigger_once=trigger_once, trigger_interval=trigger_interval, trigger_availableNow=trigger_availableNow)
+      sq = dw.start()
 
       # wait for event; desired amount of batches
+      print("WAITING FOR INTERNAL EVENT")
       _batch_finished_event.wait()
+      
+      if stop_on_batch_limit:
+        sq.awaitTermination()
+
+      print("BATCH FINISHED!")
+
+      # raise if stream terminated because of error
+      ex = sq.exception()
+      if ex:
+        raise ex
 
       print(f"RETURNING: {returns=}")
       return [table(n) for n in returns]
 
-    return Step(_logic_wrapper, returns=returns, pipeline=self, depends_on=depends_on)
+    step = Step(_logic_wrapper, returns=returns, pipeline=pipeline, depends_on=depends_on)
+    return step
   
   return _step_wrapper
