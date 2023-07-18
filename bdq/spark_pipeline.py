@@ -4,7 +4,7 @@ import functools
 import inspect
 import threading
 from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql.streaming import StreamingQueryListener, DataStreamWriter
+from pyspark.sql.streaming import StreamingQueryListener, DataStreamWriter, StreamingQuery
 from pyspark.sql.streaming.listener import QueryProgressEvent, QueryStartedEvent, QueryTerminatedEvent
 from bdq import spark, table
 from copy import deepcopy
@@ -60,8 +60,21 @@ class Step():
     deps = [n._node for n in depends_on]
     self._dag.node(depends_on=deps)(self)
 
-  def __repr__(self):
+  def __repr__(self) -> str:
     return f"{self.name}"
+
+  def _repr_str_(self):
+    max_len = max(
+      len(str(n))
+      for n in self.__dict__
+      if not str(n).startswith('_')
+    ) + 1
+
+    return f"\n{self.name}:\n" + "\n".join([ 
+      f"  {n:{max_len}}: {str(v)[0:100]}"
+      for n, v in self.__dict__.items()
+      if not str(n).startswith('_')
+      ])
   
   def __call__(self):
     return execute_step_decorated_function(self.function, self, self.returns, item_type=Any)
@@ -317,32 +330,25 @@ def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str, return
                               ):
   
   options = options or {}
-
   #TODO: resolve input table from depends_on if possible
   #TODO: handle reset?
 
   validate_xor_values(trigger_once=trigger_once, trigger_availableNow=trigger_availableNow, trigger_interval=trigger_interval)
 
   def _step_wrapper(func):
-    checkpoint_location = validate_spark_streaming_checkpoint_location(pipeline, func)
-
     @functools.wraps(func)
     def _logic_wrapper(step:Step):
-      query_name = f"{step.pipeline.name}/{step.name}"
-      step.query_name = query_name
-      step.checkpoint_location = checkpoint_location
       nonlocal returns, depends_on
 
       returns = validate_step_returns(func, returns)
       depends_on = validate_step_depends_on(depends_on)
 
       streaming_df:DataFrame = table(input_table)
-      _batch_finished_event = threading.Event()
       _batch_finished_batch_limit = batch_limit
       
       class MyListener(StreamingQueryListener):
         def onQueryStarted(self, event:QueryStartedEvent):
-          if event.name == query_name:
+          if event.name == step.streaming_query_name:
             print(f"onQueryStarted {event.name=}, {event.runId}, {event.id}")
             self._filter_runId = event.runId
             
@@ -360,9 +366,8 @@ def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str, return
                 sq.stop()
               
               # this will let step finish
-              _batch_finished_event.set()
+              step.streaming_unblock_event.set()
              
-
         def onQueryTerminated(self, event:QueryTerminatedEvent):
           if event.runId != self._filter_runId:
             return
@@ -370,37 +375,52 @@ def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str, return
           print(f"onQueryTerminated {event.runId=}, {event.id=}")
          
           # handle scenario where query finishes before hitting the desired countdown limit
-          _batch_finished_event.set()
+          step.streaming_unblock_event.set()
       
       spark.streams.addListener(MyListener())
 
+      relative_batch_id = 0
+
+      def _feb_func_wrapper(df, batch_id):
+        nonlocal relative_batch_id
+        r = func(df, batch_id, relative_batch_id, step)
+        relative_batch_id = relative_batch_id + 1
+        return r
+      
+      step.streaming_unblock_event = threading.Event()
+
       dw = streaming_df.writeStream \
-        .option('checkpointLocation', checkpoint_location) \
+        .option('checkpointLocation', step.streaming_checkpoint_location) \
         .options(**options) \
-        .queryName(query_name) \
-        .foreachBatch(func) \
+        .queryName(step.streaming_query_name) \
+        .foreachBatch(_feb_func_wrapper) \
         
       dw = apply_spark_streaming_trigger(dw, trigger_once=trigger_once, trigger_interval=trigger_interval, trigger_availableNow=trigger_availableNow)
       sq = dw.start()
 
+      step.streaming_query = sq
+
       # wait for event; desired amount of batches
-      print("WAITING FOR INTERNAL EVENT")
-      _batch_finished_event.wait()
+      step.streaming_unblock_event.wait()
       
       if stop_on_batch_limit:
+        # this should not block, right?
         sq.awaitTermination()
-
-      print("BATCH FINISHED!")
 
       # raise if stream terminated because of error
       ex = sq.exception()
       if ex:
         raise ex
 
-      print(f"RETURNING: {returns=}")
       return [table(n) for n in returns]
 
+    # i should make new class instead of monkey patching this one, but who is to stop me?
     step = Step(_logic_wrapper, returns=returns, pipeline=pipeline, depends_on=depends_on)
+    step.streaming_query_name:str = f"{step.pipeline.name}/{step.name}"
+    step.streaming_checkpoint_location:str = validate_spark_streaming_checkpoint_location(pipeline, func)
+    step.streaming_query:StreamingQuery = None
+    step.streaming_unblock_event = None
+
     return step
   
   return _step_wrapper
