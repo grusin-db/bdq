@@ -326,7 +326,7 @@ def step_spark_table(pipeline:SparkPipeline, *, returns:list[str]=None, depends_
 @register_spark_pipeline_step_implementation
 def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str, returns:list[str]=None, depends_on:list[Step]=None, 
                               trigger_once:bool=False, trigger_availableNow:bool=False, trigger_interval:str=None, 
-                              options:dict=None, batch_limit:int=-1, stop_on_batch_limit=True
+                              options:dict=None
                               ):
   
   options = options or {}
@@ -344,37 +344,20 @@ def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str, return
       depends_on = validate_step_depends_on(depends_on)
 
       streaming_df:DataFrame = table(input_table)
-      _batch_finished_batch_limit = batch_limit
       
       class MyListener(StreamingQueryListener):
         def onQueryStarted(self, event:QueryStartedEvent):
           if event.name == step.streaming_query_name:
-            print(f"onQueryStarted {event.name=}, {event.runId}, {event.id}")
             self._filter_runId = event.runId
             
-        def onQueryProgress(self, event:QueryProgressEvent):          
-          if event.progress.runId != self._filter_runId:
-            return
-
-          print(f"onQueryProgress: {event.progress.json}")
-          
-          if batch_limit > 0:
-            nonlocal _batch_finished_batch_limit
-            _batch_finished_batch_limit = _batch_finished_batch_limit - 1
-            if _batch_finished_batch_limit <= 0:
-              if stop_on_batch_limit:
-                sq.stop()
-              
-              # this will let step finish
-              step.streaming_unblock_event.set()
+        def onQueryProgress(self, event:QueryProgressEvent):
+          pass         
              
         def onQueryTerminated(self, event:QueryTerminatedEvent):
           if event.runId != self._filter_runId:
             return
-                
-          print(f"onQueryTerminated {event.runId=}, {event.id=}")
-         
-          # handle scenario where query finishes before hitting the desired countdown limit
+            
+          # handle scenario where query finishes, user code can set this too!
           step.streaming_unblock_event.set()
       
       spark.streams.addListener(MyListener())
@@ -403,10 +386,6 @@ def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str, return
       # wait for event; desired amount of batches
       step.streaming_unblock_event.wait()
       
-      if stop_on_batch_limit:
-        # this should not block, right?
-        sq.awaitTermination()
-
       # raise if stream terminated because of error
       ex = sq.exception()
       if ex:
