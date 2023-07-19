@@ -152,7 +152,7 @@ class SparkPipeline:
     return self._unpack_state_from_node_list(self._dag.get_success_nodes())
 
   def execute(self, max_concurrent_steps=10):
-    self._dag.execute(max_workers=max_concurrent_steps, verbose=True)
+    self._dag.execute(max_workers=max_concurrent_steps)
     if self.is_success():
       return self._unpack_state_from_node_list(self._dag.nodes)
     

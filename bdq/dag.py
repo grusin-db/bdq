@@ -75,12 +75,19 @@ class Node:
 
     viz.setNode(self.name, style=style)
     
-  def reset(self):
+  def reset(self, reset_futures=False):
     self.start_ts = None
     self.stop_ts = None
     self.completed = threading.Event()
     self.exception = None
     self.result = None
+    if reset_futures and self.future is not None:
+      try:
+        self.future.cancel()
+      except:
+        pass
+      
+      self.future = None
 
     self._viz_update_state()
 
@@ -109,7 +116,6 @@ class Node:
       self._viz_update_state()
       raise e
 
-    
 
 class DAG:
   BREAK = threading.Event()
@@ -152,7 +158,6 @@ class DAG:
       # if node already exists remind the function
       for n in self.nodes:
         if n.name == node.name:
-          n.log.debug("rebinding")
           # remove old wrapped function tracking
           self.functions.pop(n.function, None)
 
@@ -226,7 +231,7 @@ class DAG:
 
   def reset_nodes(self):
     for n in self.nodes:
-      n.reset()
+      n.reset(reset_futures=True)
 
   def visualize(self):
     if not self._vizg:
@@ -236,7 +241,7 @@ class DAG:
     import ipydagred3
     return ipydagred3.DagreD3Widget(graph=self._vizg)
   
-  def execute(self, max_workers, verbose=True):
+  def execute(self, max_workers):
     lock = threading.RLock()
     self._running_nodes = 0
     all_nodes_finished_event = threading.Event()
@@ -250,11 +255,9 @@ class DAG:
           self._running_nodes = self._running_nodes - 1
 
           if node.exception:
-            if verbose:
-              node.log.error(f"Error (running: {self._running_nodes})", exc_info=node.exception)
+            node.log.error(f"Error (running: {self._running_nodes})", exc_info=node.exception)
           else:
-            if verbose:
-              node.log.info(f"Finished (running: {self._running_nodes})")
+            node.log.info(f"Finished (running: {self._running_nodes})")
 
           if not node.exception:
             started_nodes = _start_if_dependenyc_met(node.children)
@@ -286,15 +289,13 @@ class DAG:
           node.future = executor.submit(node)
           node._viz_update_state()
           
-          if verbose:
-            node.log.info(f"Starting (running: {self._running_nodes})")
+          node.log.info(f"Starting (running: {self._running_nodes})")
         
           started_nodes.append(node)
 
       return started_nodes
 
-    if verbose:
-      self.log.info("Waiting for all tasks to finish...")
+    self.log.info("DAG Started, waiting for all tasks to finish...")
     
     if self.nodes:
       _add_done_callback(_start_if_dependenyc_met(self.nodes))
@@ -302,10 +303,10 @@ class DAG:
       all_nodes_finished_event.set()
 
     all_nodes_finished_event.wait()
-    if verbose:
-      self.log.info("All tasks finished, shutting down")
+
+    self.log.info("All tasks finished, shutting down")
     
     executor.shutdown()
 
-  def __call__(self, max_workers, verbose=True):
-    return self.execute(max_workers=max_workers, verbose=verbose)
+  def __call__(self, max_workers):
+    return self.execute(max_workers=max_workers)
