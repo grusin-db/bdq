@@ -1,8 +1,10 @@
 import threading
 import concurrent.futures as CF
 import traceback
+import logging
 from collections.abc import Iterable, Callable
 from typing import Any
+from datetime import datetime
 
 __all__ = [ 
   'Node',
@@ -36,12 +38,13 @@ class Node:
     if self.exception:
       return "".join(traceback.format_tb(self.exception.__traceback__))
   
-  def __init__(self, function, dag:DAG=None):
+  def __init__(self, function, dag:DAG):
     if function is None or not callable(function):
       raise ValueError("function must be a callable, not may not be None")
     
     self.name = function.__name__
     self.dag = dag
+    self.log:logging.Logger = self.dag.log.getChild(self.name)
     self.function = function
     self.children: set[Node] = set()
     self.parents: set[Node] = set()
@@ -49,6 +52,8 @@ class Node:
     self.future: CF.Future = None
     self.exception:Exception = None
     self.result = None
+    self.start_ts: datetime = None
+    self.stop_ts: datetime = None
 
     self._viz_update_state()
 
@@ -71,6 +76,8 @@ class Node:
     viz.setNode(self.name, style=style)
     
   def reset(self):
+    self.start_ts = None
+    self.stop_ts = None
     self.completed = threading.Event()
     self.exception = None
     self.result = None
@@ -90,19 +97,28 @@ class Node:
     self.reset()
 
     try:
+      self.start_ts = datetime.now()
       self.result = self.function(*args, **kwds)
       self.completed.set()
+      self.stop_ts = datetime.now()
       self._viz_update_state()
     except Exception as e:
       self.exception = e
       self.completed.set()
+      self.stop_ts = datetime.now()
       self._viz_update_state()
       raise e
+
+    
 
 class DAG:
   BREAK = threading.Event()
 
-  def __init__(self):
+  def __init__(self, name=None):
+    self.name = name or "DAG"
+    self.log = logging.getLogger(self.name)
+    self.log.setLevel(logging.INFO)
+
     self.nodes: dict[Node, Callable] = {}
     self.functions: dict[Callable, Node] = {}
     self._vizg = self._vizg_try_init()
@@ -124,19 +140,36 @@ class DAG:
     def _graph_node(fun):
       if fun in self.functions:
         raise ValueError(f"Function {fun} is already called by a graph")
-  
-      #add new node
+      
+      #new node definition
       node = Node(fun, self)
-      if node in self.nodes:
-        raise ValueError(f"Node {node} is already present in a DAG")
-
-      self.nodes[node] = fun
-      self.functions[fun] = node
 
       #validate first
       for dep_node in depends_on:
         if not isinstance(dep_node, Node):
           raise ValueError(f"{node} dependency '{dep_node}' is not as node")
+
+      # if node already exists remind the function
+      for n in self.nodes:
+        if n.name == node.name:
+          n.log.debug("rebinding")
+          # remove old wrapped function tracking
+          self.functions.pop(n.function, None)
+
+          # update existing function to new function
+          n.function = node.function
+
+          # remove all dependencies node might have
+          for c in self.nodes:
+            c.children.discard(n)
+            c.parents.discard(n)
+
+          # reasign node
+          node = n
+          break
+
+      self.nodes[node] = fun
+      self.functions[fun] = node
 
       #add once it's dage
       for dep_node in depends_on:
@@ -197,7 +230,7 @@ class DAG:
 
   def visualize(self):
     if not self._vizg:
-      print("pip package `ipydagred3` not installed, `%pip install ipydagred3` and rerun to see beautiful live visualization")
+      self.log.info("pip package `ipydagred3` not installed, `%pip install ipydagred3` and rerun to see beautiful live visualization")
       return None
     
     import ipydagred3
@@ -218,10 +251,10 @@ class DAG:
 
           if node.exception:
             if verbose:
-              print(f"  error: {node}: {node.exception} (running: {self._running_nodes})")
+              node.log.error(f"Error (running: {self._running_nodes})", exc_info=node.exception)
           else:
             if verbose:
-              print(f"  finished: {node} (running: {self._running_nodes})")
+              node.log.info(f"Finished (running: {self._running_nodes})")
 
           if not node.exception:
             started_nodes = _start_if_dependenyc_met(node.children)
@@ -254,14 +287,14 @@ class DAG:
           node._viz_update_state()
           
           if verbose:
-            print(f"  starting: {node} (running: {self._running_nodes})")
+            node.log.info(f"Starting (running: {self._running_nodes})")
         
           started_nodes.append(node)
 
       return started_nodes
 
     if verbose:
-      print("Waiting for all tasks to finish...")
+      self.log.info("Waiting for all tasks to finish...")
     
     if self.nodes:
       _add_done_callback(_start_if_dependenyc_met(self.nodes))
@@ -270,7 +303,7 @@ class DAG:
 
     all_nodes_finished_event.wait()
     if verbose:
-      print("All tasks finished, shutting down")
+      self.log.info("All tasks finished, shutting down")
     
     executor.shutdown()
 

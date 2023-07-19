@@ -1,8 +1,10 @@
-from typing import Any, Callable, Union
+from typing import Any, Callable, Union, List
 import bdq
 import functools
 import inspect
+import logging
 import threading
+import pandas as pd
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.streaming import StreamingQueryListener, DataStreamWriter, StreamingQuery
 from pyspark.sql.streaming.listener import QueryProgressEvent, QueryStartedEvent, QueryTerminatedEvent
@@ -47,34 +49,51 @@ class Step():
   def __name__(self) -> str:
     return f"{self.name}"
   
-  def __init__(self, func, pipeline:SparkPipeline, depends_on:list[Callable], returns:list[str]=None):
+  @property
+  def stop_ts(self):
+    return self._node.stop_ts
+    
+  @property
+  def start_ts(self):
+    return self._node.start_ts
+    
+  def __init__(self, func, pipeline:SparkPipeline, depends_on:List[Callable], returns:List[str]=None):
     if func is None or not callable(func):
       raise ValueError("func must be a callable")
     
     self.name = func.__name__
+    self.pipeline = pipeline
+    self.log = self.pipeline.log.getChild(self.name)
     self.function = func
     self.returns = validate_step_returns(func, returns)
-    self.pipeline = pipeline
-    depends_on = validate_step_depends_on(depends_on)
 
-    deps = [n._node for n in depends_on]
-    self._dag.node(depends_on=deps)(self)
+    for r in self.returns:
+      s = self.pipeline.registered_returns.get(r)
+      if s and s.name != self.name:
+        raise ValueError(f"{r} is already created by Step {s.name}")
+      self.pipeline.registered_returns[r] = self
+
+    depends_on = self.pipeline.resolve_depends_on(depends_on)
+
+    depends_on_dag_nodes = [n._node for n in depends_on]
+    self._dag.node(depends_on=depends_on_dag_nodes)(self)
 
   def __repr__(self) -> str:
     return f"{self.name}"
 
-  def _repr_str_(self):
-    max_len = max(
-      len(str(n))
-      for n in self.__dict__
-      if not str(n).startswith('_')
-    ) + 1
+  def _repr_html_(self):
+    def _trunc_string(s, max_len=150):
+      s = str(s)
+      return s[:max_len] + (s[max_len:] and '...')
 
-    return f"\n{self.name}:\n" + "\n".join([ 
-      f"  {n:{max_len}}: {str(v)[0:100]}"
-      for n, v in self.__dict__.items()
+    data = [
+      (n, _trunc_string(getattr(self, n)))
+      for n in sorted(dir(self))
       if not str(n).startswith('_')
-      ])
+    ]
+
+    pdf = pd.DataFrame.from_records(data, columns =['property', 'value'])
+    return pdf.to_html()
   
   def __call__(self):
     return execute_step_decorated_function(self.function, self, self.returns, item_type=Any)
@@ -101,14 +120,17 @@ class SparkPipeline:
 
   def __init__(self, name:str, spark:SparkSession=None):
     self.name = name
+    self.log = logging.getLogger(self.name)
+    self.log.setLevel(logging.INFO)
     self.conf:dict[str,str] = {}
+    self.registered_returns: dict = {}
     self._spark = spark or SparkSession.getActiveSession()
 
     if not self._spark:
       raise ValueError("could not get active spark session")
   
     self._spark_thread_pinning_wrapper = self._get_spark_thread_pinning_wrapper(self._spark)
-    self._dag = bdq.DAG()
+    self._dag = bdq.DAG(self.name)
     
   def visualize(self):
     return self._dag.visualize()
@@ -117,7 +139,7 @@ class SparkPipeline:
     return self._dag.is_success()
   
   @classmethod
-  def _unpack_state_from_node_list(cls, node_list: list[bdq.dag.Node]):
+  def _unpack_state_from_node_list(cls, node_list: List[bdq.dag.Node]):
     return [n.function for n in node_list]
 
   def get_error_steps(self):
@@ -159,6 +181,27 @@ class SparkPipeline:
       return isinstance(spark.sparkContext._gateway, ClientServer)
     except:
       return False
+    
+  def resolve_depends_on(self, depends_on: List[Union[Callable, str]]):
+    depends_on = validate_list_of_type(
+      obj=depends_on,
+      obj_name="depends_on",
+      item_type=(Callable, str),
+      default_value=[]
+    )
+    
+    new_depends_on = set()
+
+    for d in depends_on:
+      if isinstance(d, Callable):
+        new_depends_on.add(d)
+      elif isinstance(d, str):
+        step = self.registered_returns.get(d)
+        if not step:
+          raise ValueError(f"unresolved depends on: {d}")
+        new_depends_on.add(step)
+
+    return list(new_depends_on)
 
 def register_spark_pipeline_step_implementation(func):
   name:str = func.__name__
@@ -173,7 +216,6 @@ def register_spark_pipeline_step_implementation(func):
   return func
 
 def validate_list_of_type(obj, obj_name, item_type, default_value=None):
-  #print(f"validate_list_of_type: {obj=}, {obj_name=}, {item_type=}, {default_value=}")
   if obj is None:
     obj = default_value
   
@@ -200,7 +242,7 @@ def validate_list_of_type(obj, obj_name, item_type, default_value=None):
     
   return obj
 
-def validate_step_returns(func:Callable, returns:list[str]):
+def validate_step_returns(func:Callable, returns:List[str]) -> List[str]:
   return validate_list_of_type(
     obj=returns,
     obj_name="returns",
@@ -208,15 +250,7 @@ def validate_step_returns(func:Callable, returns:list[str]):
     default_value=func.__name__
   )
 
-def validate_step_depends_on(depends_on):
-  return validate_list_of_type(
-    obj=depends_on,
-    obj_name="depends_on",
-    item_type=Callable,
-    default_value=[]
-  )
-
-def execute_step_decorated_function(func:Callable, step:Step, returns:list[str], item_type):
+def execute_step_decorated_function(func:Callable, step:Step, returns:List[str], item_type):
   returns = validate_step_returns(func, returns)  
   
   #TODO: do some inspect and parameter probing, to detect if pipeline has to be passed or not
@@ -256,8 +290,6 @@ def validate_spark_streaming_checkpoint_location(pipeline:SparkPipeline, name:Un
 def apply_spark_streaming_trigger(dw:DataStreamWriter, trigger_once:bool=False, trigger_availableNow:bool=False, trigger_interval:str=None):
   name, value = validate_xor_values(trigger_once=trigger_once, trigger_availableNow=trigger_availableNow, trigger_interval=trigger_interval)
 
-  print("TRIGGER:", name, value)
-
   if name == 'trigger_once':
     dw = dw.trigger(once=value)
   elif name == 'trigger_availableNow':
@@ -268,13 +300,13 @@ def apply_spark_streaming_trigger(dw:DataStreamWriter, trigger_once:bool=False, 
   return dw
 
 @register_spark_pipeline_step_implementation
-def step_python(pipeline:SparkPipeline, *, returns:list[str]=None, depends_on:list[Step]=None) -> Step:    
+def step_python(pipeline:SparkPipeline, *, returns:List[str]=None, depends_on:List[Step]=None) -> Step:    
     def _step_wrapper(func):
       return Step(func, returns=returns, pipeline=pipeline, depends_on=depends_on)
     return _step_wrapper
 
 @register_spark_pipeline_step_implementation
-def step_spark(pipeline:SparkPipeline, *, returns:list[str]=None, depends_on:list[Step]=None) -> Step:
+def step_spark(pipeline:SparkPipeline, *, returns:List[str]=None, depends_on:List[Step]=None) -> Step:
   def _step_wrapper(func):
     
     @functools.wraps(func)
@@ -285,7 +317,7 @@ def step_spark(pipeline:SparkPipeline, *, returns:list[str]=None, depends_on:lis
   return _step_wrapper
 
 @register_spark_pipeline_step_implementation
-def step_spark_temp_view(pipeline:SparkPipeline, *, returns:list[str]=None, depends_on:list[Step]=None) -> Step:
+def step_spark_temp_view(pipeline:SparkPipeline, *, returns:List[str]=None, depends_on:List[Step]=None) -> Step:
   def _step_wrapper(func):
     
     @functools.wraps(func)
@@ -304,7 +336,7 @@ def step_spark_temp_view(pipeline:SparkPipeline, *, returns:list[str]=None, depe
   return _step_wrapper
 
 @register_spark_pipeline_step_implementation
-def step_spark_table(pipeline:SparkPipeline, *, returns:list[str]=None, depends_on:list[Step]=None, 
+def step_spark_table(pipeline:SparkPipeline, *, returns:List[str]=None, depends_on:List[Step]=None, 
                       mode:str="overwrite", format:str="delta", **options:dict[str, Any]) -> Step:
 
   def _step_wrapper(func):
@@ -324,25 +356,26 @@ def step_spark_table(pipeline:SparkPipeline, *, returns:list[str]=None, depends_
   return _step_wrapper
 
 @register_spark_pipeline_step_implementation
-def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str, returns:list[str]=None, depends_on:list[Step]=None, 
+def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str=None, returns:List[str]=None, depends_on:List[Step]=None, 
                               trigger_once:bool=False, trigger_availableNow:bool=False, trigger_interval:str=None, 
-                              options:dict=None
-                              ):
-  
+                              options:dict=None, output_mode:str=None):
   options = options or {}
-  #TODO: resolve input table from depends_on if possible
-  #TODO: handle reset?
+  depends_on = pipeline.resolve_depends_on(depends_on)
+  
+  if not input_table and len(depends_on) == 1 and len(depends_on[0].returns) == 1:
+    input_table = depends_on[0].returns[0]
 
+  if not input_table:
+    raise ValueError("input_table is not defined and connot be implicitly derived from depends_on because there are multiple dependencies defined")
+    
   validate_xor_values(trigger_once=trigger_once, trigger_availableNow=trigger_availableNow, trigger_interval=trigger_interval)
 
   def _step_wrapper(func):
+    nonlocal returns
+    returns = validate_step_returns(func, returns)
+
     @functools.wraps(func)
     def _logic_wrapper(step:Step):
-      nonlocal returns, depends_on
-
-      returns = validate_step_returns(func, returns)
-      depends_on = validate_step_depends_on(depends_on)
-
       streaming_df:DataFrame = table(input_table)
       
       class MyListener(StreamingQueryListener):
@@ -377,6 +410,9 @@ def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str, return
         .options(**options) \
         .queryName(step.streaming_query_name) \
         .foreachBatch(_feb_func_wrapper) \
+        
+      if output_mode:
+        dw = dw.outputMode(output_mode)
         
       dw = apply_spark_streaming_trigger(dw, trigger_once=trigger_once, trigger_interval=trigger_interval, trigger_availableNow=trigger_availableNow)
       sq = dw.start()
