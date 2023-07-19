@@ -57,7 +57,7 @@ class Step():
   def start_ts(self):
     return self._node.start_ts
     
-  def __init__(self, func, pipeline:SparkPipeline, depends_on:List[Callable], returns:List[str]=None):
+  def __init__(self, func, pipeline:SparkPipeline, depends_on:List[Callable], outputs:List[str]=None):
     if func is None or not callable(func):
       raise ValueError("func must be a callable")
     
@@ -65,9 +65,9 @@ class Step():
     self.pipeline = pipeline
     self.log = self.pipeline.log.getChild(self.name)
     self.function = func
-    self.returns = validate_step_returns(func, returns)
+    self.outputs = validate_step_outputs(func, outputs)
 
-    for r in self.returns:
+    for r in self.outputs:
       s = self.pipeline.registered_returns.get(r)
       if s and s.name != self.name:
         raise ValueError(f"{r} is already created by Step {s.name}")
@@ -96,7 +96,7 @@ class Step():
     return pdf.to_html()
   
   def __call__(self):
-    return execute_step_decorated_function(self.function, self, self.returns, item_type=Any)
+    return execute_step_decorated_function(self.function, self, self.outputs, item_type=Any)
     
     #FIXME: how to make it working?!
     # if self.pipeline._spark_thread_pinning_wrapper:
@@ -242,28 +242,28 @@ def validate_list_of_type(obj, obj_name, item_type, default_value=None):
     
   return obj
 
-def validate_step_returns(func:Callable, returns:List[str]) -> List[str]:
+def validate_step_outputs(func:Callable, outputs:List[str]) -> List[str]:
   return validate_list_of_type(
-    obj=returns,
-    obj_name="returns",
+    obj=outputs,
+    obj_name="outputs",
     item_type=str,
     default_value=func.__name__
   )
 
-def execute_step_decorated_function(func:Callable, step:Step, returns:List[str], item_type):
-  returns = validate_step_returns(func, returns)  
+def execute_step_decorated_function(func:Callable, step:Step, outputs:List[str], item_type):
+  outputs = validate_step_outputs(func, outputs)  
   
   #TODO: do some inspect and parameter probing, to detect if pipeline has to be passed or not
   data = func(step)
   data = validate_list_of_type(
     obj=data, 
-    obj_name=f"return value of function {func.__name__}", 
+    obj_name=f"output values of function {func.__name__}", 
     item_type=item_type,
     default_value=[]
   )
 
-  if len(data) != len(returns):
-    raise ValueError(f"Step {func.__name__}(...) returned {len(data)} {item_type}(s), but {len(returns)} were expected, to match returns specification: {returns}")
+  if len(data) != len(outputs):
+    raise ValueError(f"Step {func.__name__}(...) returned {len(data)} {item_type}(s), but {len(outputs)} were expected, to match outputs specification: {outputs}")
 
   return data
 
@@ -300,29 +300,29 @@ def apply_spark_streaming_trigger(dw:DataStreamWriter, trigger_once:bool=False, 
   return dw
 
 @register_spark_pipeline_step_implementation
-def step_python(pipeline:SparkPipeline, *, returns:List[str]=None, depends_on:List[Step]=None) -> Step:    
+def step_python(pipeline:SparkPipeline, *, outputs:List[str]=None, depends_on:List[Step]=None) -> Step:    
     def _step_wrapper(func):
-      return Step(func, returns=returns, pipeline=pipeline, depends_on=depends_on)
+      return Step(func, outputs=outputs, pipeline=pipeline, depends_on=depends_on)
     return _step_wrapper
 
 @register_spark_pipeline_step_implementation
-def step_spark(pipeline:SparkPipeline, *, returns:List[str]=None, depends_on:List[Step]=None) -> Step:
+def step_spark(pipeline:SparkPipeline, *, outputs:List[str]=None, depends_on:List[Step]=None) -> Step:
   def _step_wrapper(func):
     
     @functools.wraps(func)
     def _logic_wrapper(step):
-      return execute_step_decorated_function(func, step, returns, DataFrame)
+      return execute_step_decorated_function(func, step, outputs, DataFrame)
 
-    return Step(_logic_wrapper, returns=returns, pipeline=pipeline, depends_on=depends_on)
+    return Step(_logic_wrapper, outputs=outputs, pipeline=pipeline, depends_on=depends_on)
   return _step_wrapper
 
 @register_spark_pipeline_step_implementation
-def step_spark_temp_view(pipeline:SparkPipeline, *, returns:List[str]=None, depends_on:List[Step]=None) -> Step:
+def step_spark_temp_view(pipeline:SparkPipeline, *, outputs:List[str]=None, depends_on:List[Step]=None) -> Step:
   def _step_wrapper(func):
     
     @functools.wraps(func)
     def _logic_wrapper(step):
-      new_returns = validate_step_returns(func, returns)
+      new_returns = validate_step_outputs(func, outputs)
       data = execute_step_decorated_function(func, step, new_returns, DataFrame)
 
       new_data = []
@@ -332,17 +332,17 @@ def step_spark_temp_view(pipeline:SparkPipeline, *, returns:List[str]=None, depe
 
       return new_data
 
-    return Step(_logic_wrapper, returns=returns, pipeline=pipeline, depends_on=depends_on)
+    return Step(_logic_wrapper, outputs=outputs, pipeline=pipeline, depends_on=depends_on)
   return _step_wrapper
 
 @register_spark_pipeline_step_implementation
-def step_spark_table(pipeline:SparkPipeline, *, returns:List[str]=None, depends_on:List[Step]=None, 
+def step_spark_table(pipeline:SparkPipeline, *, outputs:List[str]=None, depends_on:List[Step]=None, 
                       mode:str="overwrite", format:str="delta", **options:dict[str, Any]) -> Step:
 
   def _step_wrapper(func):
     @functools.wraps(func)
     def _logic_wrapper(step):
-      new_returns = validate_step_returns(func, returns)
+      new_returns = validate_step_outputs(func, outputs)
       data = execute_step_decorated_function(func, step, new_returns, DataFrame)
 
       new_data = []
@@ -352,18 +352,18 @@ def step_spark_table(pipeline:SparkPipeline, *, returns:List[str]=None, depends_
 
       return new_data
     
-    return Step(_logic_wrapper, returns=returns, pipeline=pipeline, depends_on=depends_on)
+    return Step(_logic_wrapper, outputs=outputs, pipeline=pipeline, depends_on=depends_on)
   return _step_wrapper
 
 @register_spark_pipeline_step_implementation
-def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str=None, returns:List[str]=None, depends_on:List[Step]=None, 
+def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str=None, outputs:List[str]=None, depends_on:List[Step]=None, 
                               trigger_once:bool=False, trigger_availableNow:bool=False, trigger_interval:str=None, 
                               options:dict=None, output_mode:str=None):
   options = options or {}
   depends_on = pipeline.resolve_depends_on(depends_on)
   
-  if not input_table and len(depends_on) == 1 and len(depends_on[0].returns) == 1:
-    input_table = depends_on[0].returns[0]
+  if not input_table and len(depends_on) == 1 and len(depends_on[0].outputs) == 1:
+    input_table = depends_on[0].outputs[0]
 
   if not input_table:
     raise ValueError("input_table is not defined and connot be implicitly derived from depends_on because there are multiple dependencies defined")
@@ -371,8 +371,8 @@ def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str=None, r
   validate_xor_values(trigger_once=trigger_once, trigger_availableNow=trigger_availableNow, trigger_interval=trigger_interval)
 
   def _step_wrapper(func):
-    nonlocal returns
-    returns = validate_step_returns(func, returns)
+    nonlocal outputs
+    outputs = validate_step_outputs(func, outputs)
 
     @functools.wraps(func)
     def _logic_wrapper(step:Step):
@@ -427,10 +427,10 @@ def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str=None, r
       if ex:
         raise ex
 
-      return [table(n) for n in returns]
+      return [table(n) for n in outputs]
 
     # i should make new class instead of monkey patching this one, but who is to stop me?
-    step = Step(_logic_wrapper, returns=returns, pipeline=pipeline, depends_on=depends_on)
+    step = Step(_logic_wrapper, outputs=outputs, pipeline=pipeline, depends_on=depends_on)
     step.streaming_query_name:str = f"{step.pipeline.name}/{step.name}"
     step.streaming_checkpoint_location:str = validate_spark_streaming_checkpoint_location(pipeline, func)
     step.streaming_query:StreamingQuery = None
