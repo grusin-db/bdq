@@ -30,7 +30,7 @@ class Step():
     return self._dag.functions[self]
   
   @property
-  def state(self):
+  def result_state(self):
     return self._node.state
   
   @property
@@ -202,7 +202,7 @@ class SparkPipeline:
         new_depends_on.add(step)
 
     return list(new_depends_on)
-
+  
 def register_spark_pipeline_step_implementation(func):
   name:str = func.__name__
 
