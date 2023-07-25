@@ -204,7 +204,7 @@ class SparkPipeline:
       schema, json_encoded_columns= self._get_save_state_schema()
       self._state_store = CatalogPersistedStateStore(
         catalog_name=state_store_catalog, database_name=state_store_database, table_name=CatalogPersistedStateStore.clean(self.name),
-        schema = schema,
+        schema = schema, filter_expr=(F.col('pipeline_name') == F.lit(self.name)),
         json_encoded_columns=json_encoded_columns, event_ts_column='start_ts', log=self.log
       )
       self._state_store_data = self._state_store.load()

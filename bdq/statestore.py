@@ -41,7 +41,7 @@ class PersistedStateStoreBase:
     return json.loads(obj, object_hook=_object_hook)
 
 class CatalogPersistedStateStore(PersistedStateStoreBase):
-  def __init__(self, catalog_name: str, database_name: str, table_name: str, schema: Union[str, T.StructType], event_ts_column:str, json_encoded_columns=None, log: logging.Logger=None):
+  def __init__(self, catalog_name: str, database_name: str, table_name: str, schema: Union[str, T.StructType], event_ts_column:str, json_encoded_columns=None, log: logging.Logger=None, filter_expr=None):
     self.log = log.getChild('StateStore') if log else logging.getLogger('StateStore')
     self.catalog_name = catalog_name
     self.database_name = database_name
@@ -51,6 +51,7 @@ class CatalogPersistedStateStore(PersistedStateStoreBase):
     self.event_ts_column = event_ts_column
     self.json_encoded_columns = json_encoded_columns
     self.spark = SparkSession.getActiveSession()
+    self.filter_expr = filter_expr
 
     if isinstance(schema, str):
       schema = T._parse_datatype_string(schema)
@@ -80,7 +81,16 @@ class CatalogPersistedStateStore(PersistedStateStoreBase):
     self.log.info(f"Initialized CatalogPersistedState from {self.fqn_table_name}")
 
   def load(self) -> dict:
-    data = self.spark.table(self.fqn_table_name).orderBy(F.col(self.event_ts_column).desc()).limit(1).first()
+    df = self.spark \
+      .table(self.fqn_table_name)
+        
+    if self.filter_expr:
+      df = df.filter(self.filter_expr)
+
+    df = df.orderBy(F.col(self.event_ts_column).desc())
+
+    data = df.limit(1).first()
+
     if not data:
       self.log.info("State not found, returning empty placeholder")
       return {}
