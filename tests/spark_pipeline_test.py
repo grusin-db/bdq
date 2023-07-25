@@ -1,4 +1,3 @@
-import pytest
 import bdq
 from bdq import spark, table
 
