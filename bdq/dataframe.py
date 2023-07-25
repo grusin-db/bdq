@@ -15,8 +15,9 @@ import pyspark.sql.functions as F
 import pyspark.sql.types as T
 from pyspark.sql import DataFrame, Window
 from . import get_column_names_combinations, DAG
+from typing import List
 
-def compare_dataframes(df1:DataFrame, df2:DataFrame, key_columns:list[str], cache_results=False) -> DataFrame:
+def compare_dataframes(df1:DataFrame, df2:DataFrame, key_columns:List[str], cache_results=False) -> DataFrame:
   df1 = df1.alias('df1')
   df2 = df2.alias('df2')
 
@@ -193,7 +194,7 @@ def validate_primary_key_candidate(df, key_columns):
     ,'failed_df': df
   }
 
-def validate_primary_key_candidate_combinations(df:DataFrame, combinations: list[list[str]], max_workers:int, verbose=False):
+def validate_primary_key_candidate_combinations(df:DataFrame, combinations: List[List[str]], max_workers:int, verbose=False):
   graph = DAG()
 
   validate_nodes = {}

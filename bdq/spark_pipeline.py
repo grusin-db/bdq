@@ -1,4 +1,4 @@
-from typing import Any, Callable, Union, List
+from typing import Any, Callable, Union, List, Dict
 import bdq
 import functools
 import inspect
@@ -9,7 +9,7 @@ import pyspark.sql.functions as F
 from pyspark.sql import DataFrame, SparkSession, Column, Observation
 from pyspark.sql.streaming import StreamingQueryListener, DataStreamWriter, StreamingQuery
 from pyspark.sql.streaming.listener import QueryProgressEvent, QueryStartedEvent, QueryTerminatedEvent
-from bdq import spark, table, CatalogPersistedStateStore
+from bdq import spark, table, CatalogPersistedStateStore, SparkUILogger
 from copy import deepcopy
 from datetime import datetime
 
@@ -82,7 +82,7 @@ class Step():
     self.log:logging.Logger = self.pipeline.log.getChild(self.name)
     self.function = func
     self.outputs = validate_step_outputs(func, outputs)
-    self.metrics: dict[str, Any] = {}
+    self.metrics: Dict[str, Any] = {}
     self._spark_metrics_supported = spark_metrics_supported
 
     if self._lazy_function_spark_metrics:
@@ -120,7 +120,13 @@ class Step():
     return pdf.to_html()
   
   def __call__(self):
-    return execute_step_decorated_function(self.function, self, self.outputs, item_type=Any)
+    f = self.function
+    #if self.pipeline._spark_thread_pinning_wrapper:
+       #add stage logger, and wrap it in spark thread pinner code
+    #  f = self.pipeline._spark_thread_pinning_wrapper(f)
+    f = bdq.SparkUILogger.tag(desc=f"{self.pipeline.name}#{self.name}")(f)
+
+    return execute_step_decorated_function(f, self, self.outputs, item_type=Any)
     
     #FIXME: how to make it working?!
     # if self.pipeline._spark_thread_pinning_wrapper:
@@ -143,7 +149,7 @@ class SparkPipeline:
     self.conf['spark.sql.streaming.checkpointLocation'] = value
 
   @property
-  def steps(self) -> dict[str, Step]:
+  def steps(self) -> Dict[str, Step]:
     return {
       node.function.name: node.function
       for node in self._dag.nodes
@@ -185,10 +191,10 @@ class SparkPipeline:
     self.name = name
     self.log:logging.Logger = logging.getLogger(self.name)
     self.log.setLevel(logging.INFO)
-    self.conf:dict[str,str] = {}
+    self.conf:Dict[str,str] = {}
     self._registered_outputs: dict = {}
     self._spark:SparkSession = spark or SparkSession.getActiveSession()
-    self._function_lazy_spark_metrics: dict[str, dict] = {}
+    self._function_lazy_spark_metrics: Dict[str, dict] = {}
     self.start_ts: datetime = None
     self.stop_ts: datetime = None
     self._state_store: CatalogPersistedStateStore = None
@@ -201,13 +207,14 @@ class SparkPipeline:
     self._dag = bdq.DAG(self.name)
 
     if state_store_catalog and state_store_database:
-      schema, json_encoded_columns= self._get_save_state_schema()
-      self._state_store = CatalogPersistedStateStore(
-        catalog_name=state_store_catalog, database_name=state_store_database, table_name=CatalogPersistedStateStore.clean(self.name),
-        schema = schema, filter_expr=(F.col('pipeline_name') == F.lit(self.name)),
-        json_encoded_columns=json_encoded_columns, event_ts_column='start_ts', log=self.log
-      )
-      self._state_store_data = self._state_store.load()
+      with SparkUILogger(f"{self.name}#_load_state_from_store"):
+        schema, json_encoded_columns= self._get_save_state_schema()
+        self._state_store = CatalogPersistedStateStore(
+          catalog_name=state_store_catalog, database_name=state_store_database, table_name=CatalogPersistedStateStore.clean(self.name),
+          schema = schema, filter_expr=(F.col('pipeline_name') == F.lit(self.name)),
+          json_encoded_columns=json_encoded_columns, event_ts_column='start_ts', log=self.log
+        )
+        self._state_store_data = self._state_store.load()
     
   # FIXME: how to handle that with display() ?
   def visualize(self):
@@ -319,9 +326,10 @@ class SparkPipeline:
     }
   
   def _save_state_to_store(self):
-    if self._state_store:
-      self._state_store.save(self._get_save_state())
-      self._state_store_data = self._state_store.load()
+    with SparkUILogger(f"{self.name}#_save_state_to_store"):
+      if self._state_store:
+        self._state_store.save(self._get_save_state())
+        self._state_store_data = self._state_store.load()
 
 def register_spark_pipeline_step_implementation(func):
   name:str = func.__name__
@@ -370,7 +378,7 @@ def validate_step_outputs(func:Callable, outputs:List[str]) -> List[str]:
     default_value=func.__name__
   )
 
-def apply_spark_metrics_observers(df:DataFrame, spark_metrics:dict[str,dict], log:logging.Logger=None):
+def apply_spark_metrics_observers(df:DataFrame, spark_metrics:Dict[str,dict], log:logging.Logger=None):
   observers = {}
   spark_metrics = spark_metrics or {}
 
@@ -597,8 +605,11 @@ def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str=None, o
       relative_batch_id = 0
 
       def _feb_func_wrapper(df, batch_id):
+        f = func
+        f = bdq.SparkUILogger.tag(desc=f"{step.pipeline.name}#{step.name}")(f)
+
         nonlocal relative_batch_id
-        r = func(df, batch_id, relative_batch_id, step)
+        r = f(df, batch_id, relative_batch_id, step)
         relative_batch_id = relative_batch_id + 1
         return r
       
@@ -630,7 +641,7 @@ def step_spark_for_each_batch(pipeline:SparkPipeline, *, input_table:str=None, o
 
     # i should make new class instead of monkey patching this one, but who is to stop me?
     step = Step(_logic_wrapper, outputs=outputs, pipeline=pipeline, depends_on=depends_on)
-    step.streaming_query_name:str = f"{step.pipeline.name}/{step.name}"
+    step.streaming_query_name:str = f"{step.pipeline.name}#{step.name}"
     step.streaming_checkpoint_location:str = validate_spark_streaming_checkpoint_location(pipeline, func)
     step.streaming_query:StreamingQuery = None
     step.streaming_unblock_event = None

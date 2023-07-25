@@ -20,7 +20,7 @@ def test_with_logic():
 
 def test_decorator_logic():
   # spark ui stages/sql actions will be visible as 'xyz', log to console too
-  @SparkUILogger.tag(desc='xyz', verbose=True)
+  @SparkUILogger.tag(desc='xyz')
   def some_function2(number):
 
     return spark.range(number).count()
@@ -37,7 +37,7 @@ def test_decorator_logic():
     spark.range(10).count()
 
   # will be isible in spark ui as '2nd-count', log to console too
-  with SparkUILogger('2nd-count', verbose=True):
+  with SparkUILogger('2nd-count'):
     spark.range(20).count()
 
   some_function2(1000)

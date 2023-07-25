@@ -3,7 +3,7 @@ import concurrent.futures as CF
 import traceback
 import logging
 from collections.abc import Iterable, Callable
-from typing import Any
+from typing import Any, List, Dict
 from datetime import datetime
 
 __all__ = [ 
@@ -125,8 +125,8 @@ class DAG:
     self.log = logging.getLogger(self.name)
     self.log.setLevel(logging.INFO)
 
-    self.nodes: dict[Node, Callable] = {}
-    self.functions: dict[Callable, Node] = {}
+    self.nodes: Dict[Node, Callable] = {}
+    self.functions: Dict[Callable, Node] = {}
     self._vizg = self._vizg_try_init()
     self._running_nodes = 0
 
@@ -137,7 +137,7 @@ class DAG:
     except:
       return None
 
-  def node(self, *, depends_on:list[Node]=[]):
+  def node(self, *, depends_on:List[Node]=[]):
     depends_on = depends_on or []
 
     if not isinstance(depends_on, Iterable):
@@ -220,13 +220,13 @@ class DAG:
       if n.state == state
     ]
 
-  def get_error_nodes(self) -> list[Node]:
+  def get_error_nodes(self) -> List[Node]:
     return self._get_nodes_with_state("ERROR")
 
-  def get_skipped_nodes(self) -> list[Node]:
+  def get_skipped_nodes(self) -> List[Node]:
     return self._get_nodes_with_state("SKIPPED")
 
-  def get_success_nodes(self) -> list[Node]:
+  def get_success_nodes(self) -> List[Node]:
     return self._get_nodes_with_state("SUCCESS")
 
   def reset_nodes(self):
@@ -271,15 +271,15 @@ class DAG:
         
       return _handle_done
 
-    def _add_done_callback(nodes: list[Node]):
+    def _add_done_callback(nodes: List[Node]):
       # must be called outside of lock, otherwise it might execute callback imediately
       # and will lead to deadlock
       for node in nodes:
         node.future.add_done_callback(_get_done_callback(node))
 
-    def _start_if_dependenyc_met(nodes: list[Node]):
+    def _start_if_dependenyc_met(nodes: List[Node]):
       with lock:
-        started_nodes:list[Node] = []
+        started_nodes:List[Node] = []
         for node in nodes:
           if not self.is_dependency_met(node) or node.future is not None:
             continue

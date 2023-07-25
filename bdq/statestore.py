@@ -84,7 +84,7 @@ class CatalogPersistedStateStore(PersistedStateStoreBase):
     df = self.spark \
       .table(self.fqn_table_name)
         
-    if self.filter_expr:
+    if self.filter_expr is not None:
       df = df.filter(self.filter_expr)
 
     df = df.orderBy(F.col(self.event_ts_column).desc())
