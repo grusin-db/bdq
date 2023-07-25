@@ -48,3 +48,7 @@ def test_broken_fact_dim_rel():
   )
 
   display(broken_sk_df)
+
+if __name__ == "__main__":
+  test_broken_fact_dim_rel()
+  

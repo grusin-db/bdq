@@ -1,7 +1,7 @@
 __version__ = "0.0.5"
 
 from pyspark.sql import SparkSession
-spark = SparkSession.builder.getOrCreate()
+spark:SparkSession = SparkSession.builder.getOrCreate()
 sc = spark.sparkContext
 table = spark.table
 sql = spark.sql

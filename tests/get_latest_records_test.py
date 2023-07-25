@@ -27,3 +27,7 @@ def test_gets_latest_records():
   # bad records need to be quarantined and handled in special process
   conflict_get_latest_df = get_latest_records_with_pk_confict_detection_flag(df, primary_key_columns, order_by_columns)
   display(conflict_get_latest_df)
+
+if __name__ == "__main__":
+  test_gets_latest_records()
+  

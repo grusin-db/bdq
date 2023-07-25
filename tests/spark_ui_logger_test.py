@@ -42,3 +42,8 @@ def test_decorator_logic():
 
   some_function2(1000)
   alpha_function2(2000)
+
+if __name__ == "__main__":
+  test_with_logic()
+  test_decorator_logic()
+  

@@ -24,3 +24,7 @@ def test_df_compare():
   df_diff = bdq.compare_dataframes(df1, df2, ['id1', 'id2'], True)
 
   bdq.display_compare_dataframes_results(df_diff)
+
+if __name__ == "__main__":
+  test_df_compare()
+  

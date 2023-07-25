@@ -22,3 +22,7 @@ def test_surrogate_key():
   )
 
   display(sk_df)
+
+if __name__ == "__main__":
+  test_surrogate_key()
+  

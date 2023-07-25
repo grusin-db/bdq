@@ -13,3 +13,6 @@ def test_validate_primary_key_candidate():
 
   assert bdq.validate_primary_key_candidate(df, key_columns=['id'])['failed_records'] == 0
   assert bdq.validate_primary_key_candidate(df, key_columns=['type'])['failed_records'] == 100
+
+if __name__ == "__main__":
+  test_validate_primary_key_candidate()

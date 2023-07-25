@@ -42,3 +42,7 @@ def test_schema_compare():
       'name', 'id1', 'last_login_ts', 'id2', 'credits', 'active'
     }
   }
+
+if __name__ == "__main__":
+  test_schema_compare()
+  

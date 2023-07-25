@@ -24,3 +24,7 @@ def test_schema_compare():
     ('f', 'g', 'a', 'c'),
     ('f', 'g', 'b', 'c'),
     ('f', 'g', 'a', 'b', 'c')]
+
+if __name__ == "__main__":
+  test_schema_compare()
+  

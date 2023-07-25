@@ -14,3 +14,8 @@ def test_validate_primary_key_candidate_combinations():
   all_combinations = list(bdq.get_column_names_combinations(df.columns))
 
   assert bdq.validate_primary_key_candidate_combinations(df, all_combinations, max_workers=10, verbose=True) == [('id',), ('type', 'reminder')]
+
+
+if __name__ == "__main__":
+  test_validate_primary_key_candidate_combinations()
+  
