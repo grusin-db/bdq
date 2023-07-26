@@ -1,7 +1,7 @@
-__version__ = "0.0.5"
+__version__ = "0.1.0"
 
 from pyspark.sql import SparkSession
-spark = SparkSession.builder.getOrCreate()
+spark:SparkSession = SparkSession.builder.getOrCreate()
 sc = spark.sparkContext
 table = spark.table
 sql = spark.sql
@@ -12,6 +12,9 @@ dbutils = DBUtils(spark)
 from .dag import DAG
 from .schema import *
 from .dataframe import *
-from .spark_pipeline import SparkPipeline
+from .statestore import *
 from .spark_ui_logger import SparkUILogger
+from .spark_pipeline import *
+
+
 

@@ -1,4 +1,7 @@
 from bdq import SparkUILogger, spark
+import logging
+
+SparkUILogger.default_log_level = logging.DEBUG
 
 def test_with_logic():
   def some_function(number):
@@ -19,7 +22,7 @@ def test_with_logic():
   alpha_function(2000)
 
 def test_decorator_logic():
-  # spark ui stages/sql actions will be visible as 'xyz'
+  # spark ui stages/sql actions will be visible as 'xyz', log to console too
   @SparkUILogger.tag(desc='xyz')
   def some_function2(number):
 
@@ -36,9 +39,14 @@ def test_decorator_logic():
   with SparkUILogger('first-count'):
     spark.range(10).count()
 
-  # will be isible in spark ui as '2nd-count'
+  # will be isible in spark ui as '2nd-count', log to console too
   with SparkUILogger('2nd-count'):
     spark.range(20).count()
 
   some_function2(1000)
   alpha_function2(2000)
+
+if __name__ == "__main__":
+  test_with_logic()
+  test_decorator_logic()
+  

@@ -1,7 +1,45 @@
 # What is bdq?
+
 BDQ stands for Big Data Quality, a set of tools/function that help you every day assert quality of datasets you have processed or ingested. Library leverages power of spark, hence it processes your quality checks at scale offered by spark and databricks.
 
+Library over time evolved into DAG executor of arbitrary python/pyspark functions. This allows to scale execution with dependency tracking to next level.
+
+## How to install?
+
+On databricks run `%pip install bdq==x.y.z`. Make sure you tag version number you are confortable with to ensure API stability.
+
+This package is currently in EXPERIMENTAL stage and newer releses might change APIs (function names, parameters, etc..).
+
+## Supported spark/databricks versions
+
+Development and testing has been performed on 12.2 LTS databricks runtime. Databricks runtime 10.4 LTS should also work with exception of `SparkPipeline.step_spark_for_each_batch` and `SparkPipeline.spark_metric` which require 12.2 LTS runtime to work.
+
+## Verbose output
+
+bdq utilizes python `logging` module, hence for the best logging experience configure logger, example setup:
+
+```python
+import logging
+import sys
+
+# py4j is very chatty, no need to deal with it unless it's critical
+logging.getLogger('py4j').setLevel(logging.CRITICAL)
+
+# run everything else on DEBUG by default
+# DEBUG prints a lot of usefull info, INFO is good in general use cases
+logging.basicConfig(
+  stream=sys.stderr,
+  level=logging.DEBUG, 
+  format='%(asctime)s %(levelname)s %(threadName)s [%(name)s] %(message)s'
+)
+```
+
+### Examples
+
+See examples bellow for short listing of major functionalities. See `tests` folder for detailed examples. Tests are meant to double as real use cases hence they serve as documentation of examples for now.
+
 ## Comparing dataframe schemas
+
 ```python
 import bdq
 from datetime import datetime
@@ -30,7 +68,7 @@ assert bdq.compare_schemas(df2.schema, df2_changed.schema) == {
 }
 ```
 
-## Comparing dataframe's data
+### Comparing dataframe's data
 
 ```python
 import bdq
@@ -77,7 +115,8 @@ bdq.display_compare_dataframes_results(df_diff)
 Not changed records count: 1
 ```
 
-## Surrogate key generation
+### Surrogate key generation
+
 with support of optional uppercasing and trimming of key columns
 
 ```python
@@ -115,7 +154,8 @@ sk_df = df1.select(
 >> +---+----+--------------+-----+-------------------------------------------------------------+---------------------------+
 ```
 
-## PK & FK intergrity checks
+### PK & FK intergrity checks
+
 with support of showing sample data from fact table that did not satisfy integrity
 
 ```python
@@ -173,7 +213,8 @@ broken_sk_df = fact_dim_broken_relationship(
 >> +----+-------+------------------------------------------------------------------------------------+
 ```
 
-## Get latest records 
+### Get latest records
+
 with optional primary key conflict resolution, where there are multiple records being candidate for latest record, but they have different attribuets and there is no way of determining which one is the latest.
 
 ```python
@@ -236,7 +277,8 @@ conflict_get_latest_df.show(truncate=True)
 
 ```
 
-## Find composite primary key candidates
+### Find composite primary key candidates
+
 Given list of possible columns, constructs the lists of all possible combinations of composite primary keys, and executes concurrently to determine if given set of columns is a valid primary key. Uses minimum possible amount of queries against spark by skipping validation paths that are based on already validated primary key combinations.
 
 ```python
@@ -257,7 +299,8 @@ bdq.validate_primary_key_candidate_combinations(df, all_combinations, max_worker
 >> [('id',), ('type', 'reminder')]
 ```
 
-## Execute DAG having nodes as python functions
+### Execute DAG having nodes as python functions
+
 ```python
 import bdq
 import time
@@ -350,36 +393,38 @@ for node in graph.nodes:
 >> Node(<function i at 0x7f50f4b53280>: {'state': 'SKIPPED', 'result': None, 'exception': None, 'completed': False} )
 ```
 
-## Execute spark pipeline of multiple steps
+### Execute spark pipeline of multiple steps
+
 using DAG component to handle parallel execution
+
 ```python
 import bdq
 from bdq import spark, table
 
-ppn = bdq.SparkPipeline(spark, "retail")
+ppn = bdq.SparkPipeline("sample")
 
 # returns dataframe, and creates spark view 'raw_data_single_source'
-@ppn.step()
-def raw_data_single_source(p):
+@ppn.step_spark_temp_view()
+def raw_data_single_source(step):
   return spark.range(1, 10)
 
 # returns dataframe, and creates spark view 'raw_nice_name'
-@ppn.step(returns=["raw_nice_name"])
-def raw_data_single_source_with_custom_name(p):
+@ppn.step_spark_temp_view(outputs="raw_nice_name")
+def raw_data_single_source_with_custom_name(step):
   return spark.range(100, 110)
 
 # returns two dataframes, and creates two spark views 'raw_data1', 'raw_data2'
-@ppn.step(returns=["raw_data1", "raw_data2"])
-def raw_data_multi_source(p):
+@ppn.step_spark_temp_view(outputs=["raw_data1", "raw_data2"])
+def raw_data_multi_source(step):
   df1 = spark.range(1000, 2000)
   df2 = spark.range(2000, 3000)
 
   return [df1, df2]
 
 # waits for raw data sources to finish, and combines the data into one unioned view `combine_data`
-# note that dependencies are python functions, not names of views (TODO: to handle view names as well)
-@ppn.step(depends_on=[raw_data_single_source, raw_data_single_source_with_custom_name, raw_data_multi_source])
-def combine_data(p):
+# note that dependencies are python functions or names of outputs
+@ppn.step_spark_temp_view(depends_on=[raw_data_single_source, raw_data_single_source_with_custom_name, 'raw_data1', 'raw_data2'])
+def combine_data(step):
   df = table('raw_data_single_source') \
     .union(table('raw_nice_name')) \
     .union(table('raw_data1')) \
@@ -388,15 +433,12 @@ def combine_data(p):
   return df
 
 # splits the combined_data into 'odd' and 'even' views
-@ppn.step(depends_on=[combine_data], returns=['odd', 'even'])
-def split_data(p):
+@ppn.step_spark_temp_view(depends_on=combine_data, outputs=['odd', 'even'])
+def split_data(step):
   df_odd = table('combine_data').filter('id % 2 == 1')
   df_even = table('combine_data').filter('id % 2 == 0')
 
   return [ df_odd, df_even ]
-
-# if you have ipydagred3 installed, you can see in real time state changes of each of the steps
-display(ppn.visualize())
 
 # executes pipeline using concurrent threads, one per each step, following the dependency DAG
 # pipeline is a normal python callable object, as if it was a function, it returns a list of all steps
@@ -410,6 +452,21 @@ print('even numbers:')
 print(table('even').limit(10).collect())
 print('odd numbers:')
 print(table('odd').limit(10).collect())
+
+#get skipped steps
+assert list(ppn.skipped_steps) == []
+
+#get errored steps (you would need to 'adjust' code of on of the steps to make it fail to see something here)
+assert list(ppn.error_steps) == []
+
+#get successfull steps
+assert set(ppn.success_steps.values()) == set([
+  raw_data_single_source_with_custom_name,
+  raw_data_multi_source,
+  split_data,
+  combine_data,
+  raw_data_single_source
+])
 
 >> Waiting for all tasks to finish...
 >>   starting: Node(raw_data_single_source: {'state': 'RUNNING', 'result': None, 'exception': None, 'completed': False} )
@@ -432,6 +489,7 @@ print(table('odd').limit(10).collect())
 ```
 
 pipeline steps are rerunable as any ordinary function:
+
 ```python
 # to rerun given step, just execute it as if it was a pure function
 # return is alaways a list of dataframs that given @ppn.step returns
@@ -439,11 +497,12 @@ pipeline steps are rerunable as any ordinary function:
 raw_data_single_source()
 ```
 
-## Spark UI Stage descriptions
+### Spark UI Stage descriptions
+
 When running code using pyspark, spark ui gets very crowded. `SparkUILogger` context manager and decorator assings human readable names to spark stages.
 
 ```python
-from bdq
+from bdq import SparkUILogger
 
 # usage of decorators
 # spark ui stages will have description of 'xyz'

@@ -9,7 +9,7 @@
         "request": "launch",
         "name": "Unit Tests (on Databricks)",
         "program": "${workspaceFolder}/pytest_databricks.py",
-        "args": ["."],
+        "args": [".", "-vv"],
         "env": {}
       }
     ]

@@ -96,3 +96,7 @@ def test_dag():
   assert e.exception is not None
   assert isinstance(e.exception, ValueError)
   print("e() results:", e)
+
+if __name__ == "__main__":
+  test_dag()
+  
