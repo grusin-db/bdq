@@ -1,4 +1,7 @@
 from bdq import SparkUILogger, spark
+import logging
+
+SparkUILogger.default_log_level = logging.DEBUG
 
 def test_with_logic():
   def some_function(number):

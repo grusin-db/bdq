@@ -6,12 +6,24 @@ import logging
 import threading
 import pandas as pd
 import pyspark.sql.functions as F
-from pyspark.sql import DataFrame, SparkSession, Column, Observation
-from pyspark.sql.streaming import StreamingQueryListener, DataStreamWriter, StreamingQuery
-from pyspark.sql.streaming.listener import QueryProgressEvent, QueryStartedEvent, QueryTerminatedEvent
+from pyspark.sql import DataFrame, SparkSession, Column
+from pyspark.sql.streaming import DataStreamWriter, StreamingQuery
 from bdq import spark, table, CatalogPersistedStateStore, SparkUILogger
 from copy import deepcopy
 from datetime import datetime
+
+# old spark workaround
+try:
+  from pyspark.sql import Observation
+except:
+  pass
+
+# old spark workaround
+try:
+  from pyspark.sql.streaming import StreamingQueryListener
+  from pyspark.sql.streaming.listener import QueryProgressEvent, QueryStartedEvent, QueryTerminatedEvent
+except:
+  pass
 
 __all__ = [
   'SparkPipeline'
