@@ -5,7 +5,7 @@ from pyspark.sql import SparkSession
 from pyspark import SparkContext
 
 class SparkUILogger:
-  default_log_level = log_level=logging.INFO
+  default_log_level = None
   _thread_local = threading.local()
 
   def __init__(self, desc, spark:SparkSession=None, log_level=None):  
@@ -19,7 +19,9 @@ class SparkUILogger:
     # init logger
     log_level = log_level or self.default_log_level
     self.log:logging.Logger = logging.getLogger(self._desc)
-    self.log.setLevel(log_level)
+    
+    if log_level is not None:
+      self.log.setLevel(log_level)
 
     # init spark
     self._spark = spark or SparkSession.getActiveSession()
